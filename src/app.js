@@ -22,7 +22,6 @@ import {
   generateRowId,
   listSpreadsheetsFromDrive
 } from './sheetsService.ts';
-import initialBookData from './initialBookData.json';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
 // ============================================================================
@@ -63,9 +62,7 @@ function getStoredAbas() {
     }
   } catch (e) {}
 
-  // Carrega abas do livro de cautelas XLSX se disponível
-  const bookSheets = Object.keys(initialBookData || {}).filter(a => !isAbaOculta(a));
-  const padrao = bookSheets.length > 0 ? bookSheets : ['CAUTELAS', 'GERAL', 'SERVIÇO', 'INSTRUÇÃO'];
+  const padrao = ['CAUTELAS', 'GERAL', 'SERVIÇO', 'INSTRUÇÃO'];
   localStorage.setItem('CEI_ABAS', JSON.stringify(padrao));
   return padrao;
 }
@@ -91,19 +88,6 @@ function registrarAssinaturaMemoria(id, nome, data, nomeAba, campo, base64) {
     const keyNome = `${aba}_${nome.trim().toUpperCase()}_${campo}`;
     assinaturasMemoriaMap.set(keyNome, base64);
   }
-}
-
-// Inicializa o mapa com as assinaturas do livro de cautelas
-if (initialBookData) {
-  Object.keys(initialBookData).forEach(sheetName => {
-    (initialBookData[sheetName] || []).forEach((rowItem) => {
-      ['f', 'g', 'i', 'j'].forEach(c => {
-        if (rowItem[c] && rowItem[c].length > 30) {
-          registrarAssinaturaMemoria(rowItem.id, rowItem.nome, rowItem.data, sheetName, c, rowItem[c]);
-        }
-      });
-    });
-  });
 }
 
 function mesclarComAssinaturasDoLivro(lista, nomeAba) {
@@ -149,23 +133,7 @@ function getStoredAbaDados(nomeAba) {
     }
   } catch (e) {}
 
-  if (!dados || dados.length === 0) {
-    if (initialBookData && initialBookData[nomeAba] && initialBookData[nomeAba].length > 0) {
-      dados = initialBookData[nomeAba].map((item, idx) => ({
-        ...item,
-        row: idx + 2
-      }));
-    } else if (nomeAba === 'CAUTELAS' || nomeAba === 'GERAL') {
-      if (initialBookData && initialBookData['CAUTELAS'] && initialBookData['CAUTELAS'].length > 0) {
-        dados = initialBookData['CAUTELAS'].map((item, idx) => ({
-          ...item,
-          row: idx + 2
-        }));
-      }
-    }
-  }
-
-  // Garante que todas as assinaturas do livro de cautelas sejam sempre restauradas
+  // Restaura assinaturas mantidas na memória local durante a sessão.
   dados = mesclarComAssinaturasDoLivro(dados, nomeAba);
   return dados;
 }
