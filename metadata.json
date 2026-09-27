@@ -1,0 +1,8 @@
+{
+  "name": "Reserva de Armamentos CEI",
+  "description": "Sistema completo para controle de reserva de armamentos e equipamentos com assinatura digital, catálogo militar e controle por abas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
