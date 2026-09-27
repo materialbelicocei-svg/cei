@@ -535,37 +535,7 @@ window.google.script.run = {
 
       async function toDataUrlFromSource(src) {
         if (!src) return '';
-        const s = String(src).trim();
-        const looksLikeRawBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200 && !s.includes('http') && !s.includes('=IMAGE');
-
-        if (s.startsWith('data:image/')) return s;
-        if (looksLikeRawBase64) return `data:image/png;base64,${s}`;
-        if (s.startsWith('http://') || s.startsWith('https://')) {
-          try {
-            const res = await fetch(s);
-            const blob = await res.blob();
-            return await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result || '');
-              reader.readAsDataURL(blob);
-            });
-          } catch (e) {
-            console.warn('Falha ao converter URL de assinatura em dataURL:', e);
-            return '';
-          }
-        }
-
-        if (s.startsWith('=IMAGE(') || s.startsWith('=image(')) {
-          const m = s.match(/"([^"]+)"/) || s.match(/'([^']+)'/);
-          if (m && m[1]) return toDataUrlFromSource(m[1]);
-          return '';
-        }
-
-        if (s.length > 50 && !s.includes(' ') && !s.includes('http') && !s.includes('=')) {
-          return 'data:image/png;base64,' + s;
-        }
-
-        return '';
+        return obterAssinaturaDataUrl(src);
       }
 
       async function obterBase64ParaExportacao(r, campo) {
@@ -1009,13 +979,29 @@ function formatarAssinaturaSrc(val) {
 
 const imagensAssinaturaDrive = new Map();
 
-async function carregarImagemAssinatura(img, valor) {
-  var src = formatarAssinaturaSrc(valor);
-  if (!src) return;
+function converterBlobParaDataUrl(blob) {
+  return new Promise(function (resolve) {
+    var reader = new FileReader();
+    reader.onloadend = function () { resolve(reader.result || ''); };
+    reader.onerror = function () { resolve(''); };
+    reader.readAsDataURL(blob);
+  });
+}
 
-  var idMatch = src.match(/[?&]id=([^&#]+)/);
-  if (idMatch) {
-    var fileId = decodeURIComponent(idMatch[1]);
+async function obterAssinaturaDataUrl(valor) {
+  var src = formatarAssinaturaSrc(valor);
+  if (!src) return '';
+  if (src.startsWith('data:image/')) return src;
+
+  var url;
+  try {
+    url = new URL(src);
+  } catch (e) {
+    return '';
+  }
+
+  var fileId = url.hostname === 'drive.google.com' ? url.searchParams.get('id') : '';
+  if (fileId) {
     try {
       var imagemPromise = imagensAssinaturaDrive.get(fileId);
       if (!imagemPromise) {
@@ -1025,22 +1011,16 @@ async function carregarImagemAssinatura(img, valor) {
           var response = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
             headers: { Authorization: 'Bearer ' + token }
           });
-          if (!response.ok) return '';
-          var blob = await response.blob();
-          return await new Promise(function (resolve) {
-            var reader = new FileReader();
-            reader.onloadend = function () { resolve(reader.result || ''); };
-            reader.onerror = function () { resolve(''); };
-            reader.readAsDataURL(blob);
-          });
+          if (!response.ok) {
+            console.warn('Falha ao baixar assinatura do Drive:', response.status);
+            return '';
+          }
+          return converterBlobParaDataUrl(await response.blob());
         })();
         imagensAssinaturaDrive.set(fileId, imagemPromise);
       }
       var dataUrl = await imagemPromise;
-      if (dataUrl) {
-        img.src = dataUrl;
-        return;
-      }
+      if (dataUrl) return dataUrl;
       imagensAssinaturaDrive.delete(fileId);
     } catch (e) {
       imagensAssinaturaDrive.delete(fileId);
@@ -1048,7 +1028,20 @@ async function carregarImagemAssinatura(img, valor) {
     }
   }
 
-  img.src = src;
+  try {
+    var publicResponse = await fetch(src);
+    if (!publicResponse.ok) return '';
+    return converterBlobParaDataUrl(await publicResponse.blob());
+  } catch (e) {
+    console.warn('Falha ao converter URL de assinatura em dataURL:', e);
+    return '';
+  }
+}
+
+async function carregarImagemAssinatura(img, valor) {
+  var src = formatarAssinaturaSrc(valor);
+  if (!src) return;
+  img.src = await obterAssinaturaDataUrl(src) || src;
 }
 
 async function prepararAssinaturaParaSheets(base64, nomeArquivo) {
