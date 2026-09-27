@@ -275,13 +275,17 @@ export async function uploadSignatureToDriveAndGetFormula(
   const looksLikeRawBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(raw) && raw.length > 200 && !raw.includes('http') && !raw.includes('=IMAGE');
   const normalized = looksLikeRawBase64 ? `data:image/png;base64,${raw}` : raw;
 
+  if (normalized.startsWith('=IMAGE(') || normalized.startsWith('=image(') || normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    return normalized;
+  }
+
   if (!normalized.startsWith('data:image/')) {
-    return base64Data;
+    return '';
   }
 
   try {
     const parts = normalized.split(',');
-    if (parts.length < 2) return base64Data;
+    if (parts.length < 2) return '';
     const mimeMatch = parts[0].match(/:(.*?);/);
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
     const byteCharacters = atob(parts[1]);
@@ -307,7 +311,7 @@ export async function uploadSignatureToDriveAndGetFormula(
     if (!uploadRes.ok) {
       const errTxt = await uploadRes.text();
       console.warn('Falha no upload da imagem no Drive:', uploadRes.status, errTxt);
-      return base64Data;
+      return '';
     }
 
     const fileData = await uploadRes.json();
@@ -348,7 +352,7 @@ export async function uploadSignatureToDriveAndGetFormula(
     console.warn('Erro ao enviar imagem ao Drive:', err);
   }
 
-  return base64Data;
+  return '';
 }
 
 /**
@@ -384,10 +388,10 @@ export async function insertRowInSheet(
   let assIVal = rowItem.assI || '';
   let assJVal = rowItem.assJ || '';
 
-  if (assFVal.startsWith('data:image/')) assFVal = await uploadSignatureToDriveAndGetFormula(assFVal, `${rowItem.nome}_assF`, accessToken);
-  if (assGVal.startsWith('data:image/')) assGVal = await uploadSignatureToDriveAndGetFormula(assGVal, `${rowItem.nome}_assG`, accessToken);
-  if (assIVal.startsWith('data:image/')) assIVal = await uploadSignatureToDriveAndGetFormula(assIVal, `${rowItem.nome}_assI`, accessToken);
-  if (assJVal.startsWith('data:image/')) assJVal = await uploadSignatureToDriveAndGetFormula(assJVal, `${rowItem.nome}_assJ`, accessToken);
+  if (assFVal) assFVal = await uploadSignatureToDriveAndGetFormula(assFVal, `${rowItem.nome}_assF`, accessToken);
+  if (assGVal) assGVal = await uploadSignatureToDriveAndGetFormula(assGVal, `${rowItem.nome}_assG`, accessToken);
+  if (assIVal) assIVal = await uploadSignatureToDriveAndGetFormula(assIVal, `${rowItem.nome}_assI`, accessToken);
+  if (assJVal) assJVal = await uploadSignatureToDriveAndGetFormula(assJVal, `${rowItem.nome}_assJ`, accessToken);
 
   // Inserir 1 linha vazia na posição 2 (índice 1) para não sobrescrever nenhum dado existente!
   const batchUrl = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`;
@@ -553,7 +557,7 @@ export async function updateCellWithIdCheck(
 
   // Se for coluna de assinatura e for base64, converte em imagem do Google Drive com fórmula =IMAGE()
   let finalVal = value;
-  if ((colNumber === 6 || colNumber === 7 || colNumber === 9 || colNumber === 10) && value && value.startsWith('data:image/')) {
+  if ((colNumber === 6 || colNumber === 7 || colNumber === 9 || colNumber === 10) && value) {
     finalVal = await uploadSignatureToDriveAndGetFormula(value, `ass_col${colNumber}_row${actualRow}`, accessToken);
   }
 
