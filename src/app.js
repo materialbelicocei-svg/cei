@@ -22,7 +22,8 @@ import {
   generateRowId,
   listSpreadsheetsFromDrive,
   uploadLocalSpreadsheetAsGoogleSheet,
-  restoreLocalSpreadsheetSignatures
+  restoreLocalSpreadsheetSignatures,
+  uploadSignatureToDriveAndGetFormula
 } from './sheetsService.ts';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
