@@ -2,6 +2,7 @@
  * RESERVA DE ARMAMENTOS CEI - 100% JAVASCRIPT / TYPESCRIPT INTEGRADO
  * Sincronização direta com a API do Google Sheets v4 e modo offline com cache local.
  */
+import './style.css';
 import {
   initGoogleAuth,
   signInWithGoogle,
@@ -564,41 +565,69 @@ window.google.script.run = {
     try {
       const dados = getStoredAbaDados(nomeAba);
 
-      function obterBase64ParaExportacao(r, campo) {
+      async function toDataUrlFromSource(src) {
+        if (!src) return '';
+        const s = String(src).trim();
+
+        if (s.startsWith('data:image/')) return s;
+        if (s.startsWith('http://') || s.startsWith('https://')) {
+          try {
+            const res = await fetch(s);
+            const blob = await res.blob();
+            return await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result || '');
+              reader.readAsDataURL(blob);
+            });
+          } catch (e) {
+            console.warn('Falha ao converter URL de assinatura em dataURL:', e);
+            return '';
+          }
+        }
+
+        if (s.startsWith('=IMAGE(') || s.startsWith('=image(')) {
+          const m = s.match(/"([^"]+)"/) || s.match(/'([^']+)'/);
+          if (m && m[1]) return toDataUrlFromSource(m[1]);
+          return '';
+        }
+
+        if (s.length > 50 && !s.includes(' ') && !s.includes('http') && !s.includes('=')) {
+          return 'data:image/png;base64,' + s;
+        }
+
+        return '';
+      }
+
+      async function obterBase64ParaExportacao(r, campo) {
         if (!r) return '';
         var val = r[campo];
 
         if (r.id) {
           var memId = assinaturasMemoriaMap.get(r.id + '_' + campo);
-          if (memId && memId.startsWith('data:image/')) return memId;
+          if (memId) {
+            const convertido = await toDataUrlFromSource(memId);
+            if (convertido) return convertido;
+          }
         }
         if (r.nome && r.data) {
           var key = (abaAtual || 'CAUTELAS') + '_' + r.nome.trim().toUpperCase() + '_' + r.data.trim() + '_' + campo;
           var memKey = assinaturasMemoriaMap.get(key);
-          if (memKey && memKey.startsWith('data:image/')) return memKey;
+          if (memKey) {
+            const convertido = await toDataUrlFromSource(memKey);
+            if (convertido) return convertido;
+          }
         }
         if (r.nome) {
           var keyNome = (abaAtual || 'CAUTELAS') + '_' + r.nome.trim().toUpperCase() + '_' + campo;
           var memNome = assinaturasMemoriaMap.get(keyNome);
-          if (memNome && memNome.startsWith('data:image/')) return memNome;
+          if (memNome) {
+            const convertido = await toDataUrlFromSource(memNome);
+            if (convertido) return convertido;
+          }
         }
 
         if (!val) return '';
-        var s = String(val).trim();
-
-        if (s.startsWith('data:image/')) return s;
-        if (s.length > 50 && !s.includes(' ') && !s.includes('http') && !s.includes('=')) {
-          return 'data:image/png;base64,' + s;
-        }
-
-        if (s.startsWith('=IMAGE(') || s.startsWith('=image(')) {
-          var m = s.match(/"([^"]+)"/) || s.match(/'([^']+)'/);
-          if (m && m[1]) return m[1];
-        }
-
-        if (s.startsWith('http://') || s.startsWith('https://')) return s;
-
-        return '';
+        return toDataUrlFromSource(val);
       }
 
       const workbook = new ExcelJS.Workbook();
@@ -628,7 +657,8 @@ window.google.script.run = {
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
       headerRow.height = 28;
 
-      dados.forEach((r, idx) => {
+      for (let idx = 0; idx < dados.length; idx++) {
+        const r = dados[idx];
         const rowNum = idx + 2;
         const row = worksheet.addRow({
           data: r.data || '',
@@ -644,18 +674,18 @@ window.google.script.run = {
         row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
         const camposAss = [
-          { campo: 'f', col: 5 }, // Coluna F (0-indexed 5)
-          { campo: 'g', col: 6 }, // Coluna G (0-indexed 6)
-          { campo: 'i', col: 8 }, // Coluna I (0-indexed 8)
-          { campo: 'j', col: 9 }, // Coluna J (0-indexed 9)
+          { campo: 'f', col: 5 },
+          { campo: 'g', col: 6 },
+          { campo: 'i', col: 8 },
+          { campo: 'j', col: 9 },
         ];
 
-        camposAss.forEach(({ campo, col }) => {
-          const b64 = obterBase64ParaExportacao(r, campo);
+        for (const { campo, col } of camposAss) {
+          const b64 = await obterBase64ParaExportacao(r, campo);
           if (b64 && b64.startsWith('data:image/')) {
             try {
               const imageId = workbook.addImage({
-                base64: b64,
+                base64: b64.includes(',') ? b64.split(',')[1] : b64,
                 extension: 'png',
               });
               worksheet.addImage(imageId, {
@@ -667,8 +697,8 @@ window.google.script.run = {
               console.warn('Erro ao inserir assinatura no XLSX:', err);
             }
           }
-        });
-      });
+        }
+      }
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -1005,6 +1035,14 @@ function formatarAssinaturaSrc(val) {
     return 'data:image/png;base64,' + s;
   }
   return s;
+}
+
+async function prepararAssinaturaParaSheets(base64, nomeArquivo) {
+  if (!base64 || typeof base64 !== 'string') return '';
+  const token = await getGoogleAccessToken();
+  if (!token) return base64;
+  const valor = await uploadSignatureToDriveAndGetFormula(base64, nomeArquivo || 'assinatura', token);
+  return valor || base64;
 }
 
 function render(lista) {
@@ -1353,7 +1391,7 @@ function limparFormulario() {
   });
 }
 
-function processarFila() {
+async function processarFila() {
   carregarFila();
   if (filaEnvio.length == 0) return;
   if (!navigator.onLine) { status('⚠ Offline ' + filaEnvio.length); return; }
@@ -1362,6 +1400,11 @@ function processarFila() {
   status('📤 Enviando ' + filaEnvio.length + '...');
 
   if (item.type == 'create') {
+    const assF = await prepararAssinaturaParaSheets(item.data.assF, 'assF_' + (item.data.nome || 'novo'));
+    const assG = await prepararAssinaturaParaSheets(item.data.assG, 'assG_' + (item.data.nome || 'novo'));
+    const assI = await prepararAssinaturaParaSheets(item.data.assI, 'assI_' + (item.data.nome || 'novo'));
+    const assJ = await prepararAssinaturaParaSheets(item.data.assJ, 'assJ_' + (item.data.nome || 'novo'));
+
     google.script.run.withSuccessHandler(function (r) {
       var realRow = typeof r === 'number' ? r : (r && r.row ? r.row : 2);
       var idx = dadosBrutos.findIndex(function (x) { return x.row == item.data.tempRow; });
@@ -1390,18 +1433,19 @@ function processarFila() {
       item.data.mun,
       item.data.obs,
       item.data.dataDev,
-      item.data.assF,
-      item.data.assG,
-      item.data.assI,
-      item.data.assJ
+      assF,
+      assG,
+      assI,
+      assJ
     );
   } else if (item.type == 'ass') {
+    const valorParaSheets = await prepararAssinaturaParaSheets(item.data.img, 'assinatura_' + item.data.row + '_' + item.data.col);
     google.script.run.withSuccessHandler(function () {
       filaEnvio.shift();
       salvarFila();
       if (filaEnvio.length > 0) setTimeout(processarFila, 400);
       else status('✅ Assinatura gravada');
-    }).salvarNaCelula(item.data.img, item.data.row, item.data.col, abaAtual, item.data.nomeMilitar, item.data.id);
+    }).salvarNaCelula(valorParaSheets, item.data.row, item.data.col, abaAtual, item.data.nomeMilitar, item.data.id);
   } else if (item.type == 'texto') {
     google.script.run.withSuccessHandler(function () {
       filaEnvio.shift();
