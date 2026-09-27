@@ -270,12 +270,17 @@ export async function uploadSignatureToDriveAndGetFormula(
   accessToken: string
 ): Promise<string> {
   if (!base64Data || typeof base64Data !== 'string') return '';
-  if (!base64Data.startsWith('data:image/')) {
+
+  const raw = base64Data.trim();
+  const looksLikeRawBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(raw) && raw.length > 200 && !raw.includes('http') && !raw.includes('=IMAGE');
+  const normalized = looksLikeRawBase64 ? `data:image/png;base64,${raw}` : raw;
+
+  if (!normalized.startsWith('data:image/')) {
     return base64Data;
   }
 
   try {
-    const parts = base64Data.split(',');
+    const parts = normalized.split(',');
     if (parts.length < 2) return base64Data;
     const mimeMatch = parts[0].match(/:(.*?);/);
     const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';

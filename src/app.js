@@ -568,8 +568,10 @@ window.google.script.run = {
       async function toDataUrlFromSource(src) {
         if (!src) return '';
         const s = String(src).trim();
+        const looksLikeRawBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200 && !s.includes('http') && !s.includes('=IMAGE');
 
         if (s.startsWith('data:image/')) return s;
+        if (looksLikeRawBase64) return `data:image/png;base64,${s}`;
         if (s.startsWith('http://') || s.startsWith('https://')) {
           try {
             const res = await fetch(s);
@@ -1039,10 +1041,13 @@ function formatarAssinaturaSrc(val) {
 
 async function prepararAssinaturaParaSheets(base64, nomeArquivo) {
   if (!base64 || typeof base64 !== 'string') return '';
+  const raw = base64.trim();
+  const looksLikeRawBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(raw) && raw.length > 200 && !raw.includes('http') && !raw.includes('=IMAGE');
+  const base64Normalizado = looksLikeRawBase64 ? `data:image/png;base64,${raw}` : raw;
   const token = await getGoogleAccessToken();
-  if (!token) return base64;
-  const valor = await uploadSignatureToDriveAndGetFormula(base64, nomeArquivo || 'assinatura', token);
-  return valor || base64;
+  if (!token) return base64Normalizado;
+  const valor = await uploadSignatureToDriveAndGetFormula(base64Normalizado, nomeArquivo || 'assinatura', token);
+  return valor || base64Normalizado;
 }
 
 function render(lista) {
