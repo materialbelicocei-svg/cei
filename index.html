@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RESERVA DE ARMAMENTOS CEI</title>
+<meta name="description" content="Sistema de Reserva de Armamentos CEI" />
+<meta property="og:title" content="RESERVA DE ARMAMENTOS CEI" />
+<meta property="og:description" content="Sistema de Reserva de Armamentos CEI" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+  <script type="module" crossorigin src="./assets/index-CGMF1Bq2.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-C3nuZfnv.css">
+</head>
+<body>
+<div id="loginOverlay"><div id="loginBox"><h2>ACESSO RESTRITO</h2><p>RESERVA DE ARMAMENTOS CEI</p><input type="password" id="senhaInput" placeholder="Digite a senha"><button id="btnEntrar">ENTRAR NO SISTEMA</button><div id="loginErro"></div></div></div>
+<div class="header">
+<div class="header-center"><h1>RESERVA DE ARMAMENTOS CEI</h1></div>
+<div class="header-right" style="display:flex;gap:8px;align-items:center;">
+<button id="btnGoogleAuth" class="btn-toolbar" style="background:#fff;color:#1e293b;border:1px solid #cbd5e1;display:flex;align-items:center;gap:6px;padding:6px 12px;font-size:11px;font-weight:700;border-radius:20px;cursor:pointer">
+  <svg width="16" height="16" viewBox="0 0 48 48" style="display:block">
+    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+  </svg>
+  <span id="googleAuthText">Conectar Google</span>
+</button>
+</div>
+</div>
+<div class="tabs-bar">
+  <div class="tabs-inner" id="tabs"></div>
+  <button class="btn-new" id="btnNovaAba">+ Nova Aba</button>
+</div>
+<div class="toolbar-fixed">
+<div class="email-group"><input id="emailCopia" type="email" placeholder="Email para cópia"><button class="btn-toolbar btn-save" id="btnSalvarCopia">Baixar</button><button class="btn-toolbar btn-email" id="btnEnviarEmail">Enviar</button></div>
+<div class="busca-group"><span style="font-weight:900">BUSCA</span><input id="buscaNome" type="text" placeholder="Buscar por nome..."></div>
+<select id="filtroMes" style="padding:9px 12px;border-radius:10px;border:2px solid #0f172a;font-weight:800;background:#fff;flex:1;max-width:180px"><option value="-1">ANO TODO</option><option value="0">Janeiro</option><option value="1">Fevereiro</option><option value="2">Março</option><option value="3">Abril</option><option value="4">Maio</option><option value="5">Junho</option><option value="6">Julho</option><option value="7">Agosto</option><option value="8">Setembro</option><option value="9">Outubro</option><option value="10">Novembro</option><option value="11">Dezembro</option></select>
+<button class="btn-toolbar btn-backup" id="btnBackup">Backup</button>
+<button class="btn-toolbar" id="btnConfigSheet" style="background:#3b82f6;color:#fff;display:flex;align-items:center;gap:6px" title="Selecionar Planilha Google ativa">📁 Selecionar Planilha</button>
+<button class="btn-toolbar" id="btnSinc" style="background:#10b981;color:#fff;display:flex;align-items:center;gap:6px">🔄 Sincronizar Sheets</button>
+</div>
+<div class="table-wrap"><div class="table-inner">
+<table>
+<thead><tr>
+<th class="sticky" style="left:0;width:135px;min-width:135px">DATA RETIRADA</th>
+<th class="sticky2" style="left:135px;width:160px;min-width:160px">GRADUAÇÃO/NOME</th>
+<th style="width:230px">ARMAMENTOS</th>
+<th style="width:230px">EQUIPAMENTOS</th>
+<th style="width:110px">MUNIÇÃO</th>
+<th style="width:120px;background:#1e3a8a">ASS. USUÁRIO RET.</th>
+<th style="width:120px;background:#1e3a8a">ASS. ARMEIRO RET.</th>
+<th style="width:110px">DATA DEV.</th>
+<th style="width:120px;background:#92400e">ASS. USUÁRIO DEV.</th>
+<th style="width:120px;background:#92400e">ASS. ARMEIRO DEV.</th>
+<th style="width:160px">OBS</th>
+<th style="width:110px">AÇÃO</th>
+</tr></thead>
+<tbody><tr class="input-row">
+<td class="sticky" style="left:0;width:135px;min-width:135px"><input id="dataRet" type="date"></td>
+<td class="sticky2" style="left:135px;width:160px;min-width:160px"><textarea id="nome" class="campo-nome" rows="2" placeholder="graduação/nome"></textarea></td>
+<td><div id="btnArmas" class="select-trigger">Selecionar Armamentos</div></td>
+<td><div id="btnEquip" class="select-trigger">Selecionar Equipamentos</div></td>
+<td style="width:110px"><input id="mun" type="number" placeholder="30"></td>
+<td><button id="btnF" class="btn-ass">ASSINAR F</button></td>
+<td><button id="btnG" class="btn-ass">ASSINAR G</button></td>
+<td style="width:110px"><input id="dataDev" type="date"></td>
+<td><button id="btnI" class="btn-ass dev">ASSINAR I</button></td>
+<td><button id="btnJ" class="btn-ass dev">ASSINAR J</button></td>
+<td><textarea id="obs" class="campo-obs" rows="2" placeholder="obs"></textarea></td>
+<td><button class="btn-add" id="btnAdicionar">+ Adicionar</button></td>
+</tr></tbody><tbody id="tbody"></tbody>
+</table>
+</div></div>
+<div id="statusBar"></div>
+<div id="modal"><div id="box"><h3 id="mt" style="text-align:center"></h3><div id="canvasWrap"><canvas id="c"></canvas></div><div class="btns"><button class="btn-c" id="btnFecharModal">Cancelar</button><button class="btn-s" id="btnSalvarAss">SALVAR ASSINATURA</button></div><div id="st" style="text-align:center;margin-top:10px;font-weight:800"></div></div></div>
+<div id="modalSelecao"><div id="boxSelecao"><h3 id="tituloModalSelecao" style="text-align:center;font-size:19px;font-weight:900;margin-bottom:12px">Selecionar</h3><input type="text" id="buscaItemCatalogo" class="filtro-catalogo" placeholder="🔍 Digite para filtrar... Ex: Mosquefal, PT100, Algemas"><div class="top-livre"><input type="text" id="nomeItemLivre" placeholder="Item não listado..."><input type="number" id="qtdItemLivre" class="qtd" placeholder="Qtd"></div><div class="top-reg"><input type="text" id="regItemLivre" placeholder="Nº Registro"></div><div class="lista-opcoes" id="listaOpcoesContainer"></div><div class="btns"><button class="btn-c" id="btnFecharSeletor">Cancelar</button><button class="btn-s" id="btnConfirmarSelecao">Confirmar Seleção</button></div></div></div>
+<div id="modalTexto"><div id="boxTexto"><h3 id="tituloModalTexto" style="text-align:center">Editar</h3><textarea id="inputModalTexto" rows="4" style="width:100%;border:2px solid #0B5FFF;border-radius:12px;padding:12px;margin-top:12px;resize:none;white-space:pre-wrap;text-align:center;font-weight:700"></textarea><div class="btns"><button class="btn-c" id="btnFecharTexto">Cancelar</button><button class="btn-s" id="btnSalvarTexto">Salvar Edição</button></div></div></div>
+<div id="modalData"><div id="boxData"><h3 id="tituloModalData" style="text-align:center">Editar Data</h3><input id="inputModalData" type="date" style="width:100%;border:2px solid #0B5FFF;border-radius:12px;padding:16px;margin-top:16px;font-size:18px;font-weight:800;text-align:center"><div class="btns"><button class="btn-c" id="btnFecharData">Cancelar</button><button class="btn-s" id="btnSalvarData">Salvar Data</button></div></div></div>
+<div id="modalNum"><div id="boxNum"><h3 id="tituloModalNum" style="text-align:center">Editar Número</h3><input id="inputModalNum" type="number" style="width:100%;border:2px solid #0B5FFF;border-radius:12px;padding:16px;margin-top:16px;font-size:20px;font-weight:800;text-align:center"><div class="btns"><button class="btn-c" id="btnFecharNum">Cancelar</button><button class="btn-s" id="btnSalvarNum">Salvar Número</button></div></div></div>
+<div id="modalConfirmEdit"><div id="boxConfirmEdit"><h3 style="text-align:center;color:#92400e">⚠ EDITAR REGISTRO SALVO?</h3><p style="text-align:center;font-size:13px;margin:16px 0;color:#334155;line-height:18px">Este registro já foi salvo. A linha já existe no sistema.<br>Qualquer campo editado, mesmo em branco, ficará como <b>(editado)</b>.</p><div class="btns"><button class="btn-c" id="btnCancelarConfirmEdit">Cancelar</button><button class="btn-s" style="background:#f59e0b" id="btnConfirmarConfirmEdit">Sim, Editar</button></div></div></div>
+<div id="modalApagar"><div id="boxApagar"><h3 style="text-align:center;color:#ef4444">⚠ APAGAR LINHA <span id="linhaApagarNum"></span>?</h3><p style="text-align:center;font-size:12px;margin:12px 0;color:#334155">Faz backup automático e registra LOG. Digite <b>APAGAR</b>:</p><input type="text" id="inputApagarConfirm" placeholder="Digite APAGAR" style="width:100%;padding:14px;border:2px solid #ef4444;border-radius:12px;font-weight:800;text-align:center;letter-spacing:2px"><div class="btns"><button class="btn-c" id="btnCancelarApagar">Cancelar</button><button class="btn-s" id="btnConfirmarApagar" style="background:#ef4444">APAGAR LINHA INTEIRA</button></div></div></div>
+<div id="modalApagarAba"><div id="boxApagarAba" style="background:#fff;border-radius:16px;width:100%;max-width:440px;padding:22px;display:flex;flex-direction:column;margin:30px auto"><h3 style="text-align:center;color:#ef4444;font-size:18px">⚠ APAGAR ABA "<span id="nomeAbaApagar"></span>"?</h3><p style="text-align:center;font-size:13px;margin:14px 0;color:#334155;line-height:18px">Esta ação removerá a aba da planilha e os dados locais.<br>Para confirmar, digite <b>APAGAR</b>:</p><input type="text" id="inputApagarAbaConfirm" placeholder="Digite APAGAR" style="width:100%;padding:12px;border:2px solid #ef4444;border-radius:10px;font-weight:800;text-align:center;letter-spacing:2px;margin-bottom:14px"><div class="btns"><button class="btn-c" id="btnCancelarApagarAba">Cancelar</button><button class="btn-s" id="btnConfirmarApagarAba" style="background:#ef4444">EXCLUIR ABA DEFINITIVAMENTE</button></div></div></div>
+<div id="modalNovaAba"><div id="boxNovaAba" style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:22px;display:flex;flex-direction:column;margin:30px auto"><h3 style="text-align:center;color:#0f172a;font-size:18px;font-weight:900">➕ Criar Nova Aba</h3><p style="text-align:center;font-size:13px;margin:10px 0 16px;color:#64748b">Digite o nome da nova aba da reserva:</p><input type="text" id="inputNomeNovaAba" placeholder="Ex: OPERAÇÃO CARNAVAL, PATRULHA, etc" style="width:100%;padding:12px;border:2px solid #0B5FFF;border-radius:10px;font-weight:800;font-size:14px;text-align:center;margin-bottom:14px;text-transform:uppercase"><div class="btns"><button class="btn-c" id="btnCancelarNovaAba">Cancelar</button><button class="btn-s" id="btnConfirmarNovaAba" style="background:#0B5FFF">Criar Aba</button></div></div></div>
+<div id="modalEditarAba"><div id="boxEditarAba" style="background:#fff;border-radius:16px;width:100%;max-width:420px;padding:22px;display:flex;flex-direction:column;margin:30px auto"><h3 style="text-align:center;color:#0f172a;font-size:18px;font-weight:900">✏ Renomear Aba</h3><p style="text-align:center;font-size:13px;margin:10px 0 16px;color:#64748b">Digite o novo nome para esta aba:</p><input type="text" id="inputNomeEditarAba" placeholder="Novo nome da aba" style="width:100%;padding:12px;border:2px solid #0B5FFF;border-radius:10px;font-weight:800;font-size:14px;text-align:center;margin-bottom:14px;text-transform:uppercase"><div class="btns"><button class="btn-c" id="btnCancelarEditarAba">Cancelar</button><button class="btn-s" id="btnConfirmarEditarAba" style="background:#0B5FFF">Salvar Nome</button></div></div></div>
+<div id="modalSelecionarPlanilha"><div id="boxSelecionarPlanilha" style="background:#fff;border-radius:16px;width:100%;max-width:580px;padding:22px;display:flex;flex-direction:column;margin:30px auto;max-height:85vh"><h3 style="text-align:center;color:#0f172a;font-size:19px;font-weight:900">📁 Selecionar Planilha do Google Drive</h3><p style="text-align:center;font-size:12px;color:#64748b;margin:6px 0 14px">Escolha diretamente uma planilha da sua conta do Google Drive:</p><div id="statusPlanilhaConexao" style="font-size:12px;font-weight:700;margin-bottom:10px;text-align:center;min-height:18px"></div><div id="listaPlanilhasDrive" style="flex:1;overflow-y:auto;border:1px solid #e2e8f0;border-radius:12px;padding:8px;max-height:300px;margin-bottom:14px;background:#f8fafc"></div><div style="border-top:1px solid #e2e8f0;padding-top:10px;margin-bottom:12px"><label style="display:block;font-size:11px;font-weight:800;color:#64748b;margin-bottom:4px">OU DIGITE O LINK/ID SE PREFERIR:</label><input type="text" id="inputPlanilhaLinkOuId" placeholder="https://docs.google.com/spreadsheets/d/... ou ID" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-weight:700;font-size:12px;outline:none"></div><div class="btns"><button class="btn-c" id="btnFecharSelecionarPlanilha">Fechar</button><button class="btn-s" id="btnConfirmarSelecionarPlanilha" style="background:#3b82f6">Confirmar Seleção</button></div></div></div>
+</body>
+</html>
