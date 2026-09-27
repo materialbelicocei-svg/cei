@@ -20,7 +20,8 @@ import {
   renameSheetTab,
   deleteSheetTab,
   generateRowId,
-  listSpreadsheetsFromDrive
+  listSpreadsheetsFromDrive,
+  revokePublicSignatureSharing
 } from './sheetsService.ts';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
@@ -2274,6 +2275,28 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el) el.addEventListener('click', criarBackupDrive);
   el = document.getElementById('btnSinc');
   if (el) el.addEventListener('click', sincronizarManual);
+  el = document.getElementById('btnPrivatizarAssinaturas');
+  if (el) {
+    el.addEventListener('click', async function() {
+      if (!currentGoogleToken) {
+        status('Conecte a conta Google com acesso de edição à planilha.');
+        return;
+      }
+      const confirmado = confirm('Vou verificar as assinaturas em todas as abas e remover somente o acesso "qualquer pessoa com o link" dos arquivos correspondentes. As fórmulas IMAGE podem deixar de mostrar as imagens dentro do Sheets. Continuar?');
+      if (!confirmado) return;
+
+      el.disabled = true;
+      try {
+        const resultado = await revokePublicSignatureSharing(getActiveSpreadsheetId(), currentGoogleToken);
+        status(`Privacidade aplicada: ${resultado.permissionsRevoked} permissões públicas removidas de ${resultado.filesChecked} arquivos; falhas: ${resultado.failedFiles}.`);
+      } catch (err) {
+        console.error('Erro ao proteger assinaturas:', err);
+        status('Não foi possível concluir a proteção das assinaturas. Verifique as permissões da conta Google.');
+      } finally {
+        el.disabled = false;
+      }
+    });
+  }
 
   el = document.getElementById('btnArmas');
   if (el) el.addEventListener('click', function () { abrirSeletor('armas', false, 0); });
