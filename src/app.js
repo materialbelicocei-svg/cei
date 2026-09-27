@@ -23,7 +23,7 @@ import {
   listSpreadsheetsFromDrive
 } from './sheetsService.ts';
 import initialBookData from './initialBookData.json';
-import ExcelJS from 'exceljs';
+import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
 // ============================================================================
 // CONFIGURAÇÃO DO GOOGLE SHEETS E SIMULADOR DO GOOGLE.SCRIPT.RUN
