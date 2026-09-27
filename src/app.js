@@ -2478,18 +2478,12 @@ document.addEventListener('DOMContentLoaded', function () {
       const m = document.getElementById('modalSelecionarPlanilha');
       if (m) m.style.display = 'none';
 
-      status('⏳ Carregando dados da planilha ' + valor.substring(0, 8) + '...');
-      // Se não estiver conectado no Google, convida a conectar
       if (!currentGoogleToken) {
-        try {
-          const res = await signInWithGoogle();
-          currentUserGoogle = res.user;
-          currentGoogleToken = res.accessToken;
-          atualizarBotaoGoogle();
-        } catch (e) {
-          console.warn('Login não concluído:', e);
-        }
+        status('Planilha selecionada. Conecte a conta Google pelo botão superior para sincronizar.');
+        return;
       }
+
+      status('⏳ Carregando dados da planilha ' + valor.substring(0, 8) + '...');
       loadAbas();
       sincronizarManual();
     });
@@ -2512,6 +2506,7 @@ document.addEventListener('DOMContentLoaded', function () {
   el = document.getElementById('btnGoogleAuth');
   if (el) {
     el.addEventListener('click', async function() {
+      if (el.disabled) return;
       try {
         if (currentGoogleToken) {
           await logoutGoogle();
@@ -2520,6 +2515,7 @@ document.addEventListener('DOMContentLoaded', function () {
           atualizarBotaoGoogle();
           status('Desconectado do Google');
         } else {
+          el.disabled = true;
           status('⏳ Conectando conta Google...');
           const res = await signInWithGoogle();
           currentUserGoogle = res.user;
@@ -2532,6 +2528,8 @@ document.addEventListener('DOMContentLoaded', function () {
       } catch (err) {
         console.error('Erro de autenticação Google:', err);
         status('❌ Erro no login Google: ' + (err.message || 'Falha'));
+      } finally {
+        el.disabled = false;
       }
     });
   }

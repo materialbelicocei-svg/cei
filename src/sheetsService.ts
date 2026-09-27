@@ -18,7 +18,7 @@ provider.setCustomParameters({
 });
 
 let cachedAccessToken: string | null = null;
-let isSigningIn = false;
+let signInRequest: Promise<{ user: User; accessToken: string }> | null = null;
 
 // Id padrão da planilha ou configurável
 export const DEFAULT_SHEET_ID = '19PV34qUCreU5xamyD-p-tssw0Ri5AHx8gD-vReF2m-0';
@@ -46,22 +46,27 @@ export const initGoogleAuth = (
   });
 };
 
-export const signInWithGoogle = async (): Promise<{ user: User; accessToken: string }> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Falha ao obter token de acesso do Google.');
+export const signInWithGoogle = (): Promise<{ user: User; accessToken: string }> => {
+  if (signInRequest) return signInRequest;
+
+  signInRequest = (async () => {
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error('Falha ao obter token de acesso do Google.');
+      }
+      cachedAccessToken = credential.accessToken;
+      return { user: result.user, accessToken: cachedAccessToken };
+    } catch (error) {
+      console.error('Erro no login do Google:', error);
+      throw error;
+    } finally {
+      signInRequest = null;
     }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error) {
-    console.error('Erro no login do Google:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
-  }
+  })();
+
+  return signInRequest;
 };
 
 export const getGoogleAccessToken = async (): Promise<string | null> => {
