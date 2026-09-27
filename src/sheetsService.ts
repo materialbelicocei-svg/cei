@@ -260,68 +260,6 @@ export async function readSheetRows(
   return rows;
 }
 
-export async function revokePublicSignatureSharing(
-  spreadsheetId: string,
-  accessToken: string
-): Promise<{ filesChecked: number; permissionsRevoked: number; failedFiles: number }> {
-  const meta = await fetchSpreadsheetMetadata(spreadsheetId, accessToken);
-  const fileIds = new Set<string>();
-
-  for (const sheetName of meta.sheets) {
-    const safeName = sheetName.replace(/'/g, "''");
-    for (const columns of ['F2:G', 'I2:J']) {
-      const range = `'${safeName}'!${columns}`;
-      const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueRenderOption=FORMULA`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      if (!res.ok) {
-        throw new Error(`Falha ao ler assinaturas da aba ${sheetName} (HTTP ${res.status}).`);
-      }
-
-      const data = await res.json();
-      for (const row of data.values || []) {
-        for (const value of row) {
-          if (typeof value !== 'string') continue;
-          const urlMatch = value.match(/https?:\/\/[^"'\s)]+/);
-          if (!urlMatch) continue;
-          try {
-            const fileId = new URL(urlMatch[0]).searchParams.get('id');
-            if (fileId) fileIds.add(fileId);
-          } catch (e) {}
-        }
-      }
-    }
-  }
-
-  let permissionsRevoked = 0;
-  let failedFiles = 0;
-  for (const fileId of fileIds) {
-    const permissionsUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?fields=permissions(id,type)&supportsAllDrives=true`;
-    const permissionsRes = await fetch(permissionsUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    if (!permissionsRes.ok) {
-      failedFiles++;
-      continue;
-    }
-
-    const permissionsData = await permissionsRes.json();
-    const publicPermissions = (permissionsData.permissions || []).filter((permission: any) => permission.type === 'anyone');
-    for (const permission of publicPermissions) {
-      const deleteUrl = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permission.id)}?supportsAllDrives=true`;
-      const deleteRes = await fetch(deleteUrl, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      if (deleteRes.ok) permissionsRevoked++;
-      else failedFiles++;
-    }
-  }
-
-  return { filesChecked: fileIds.size, permissionsRevoked, failedFiles };
-}
-
 /**
  * Faz upload de uma imagem Base64 para o Google Drive e retorna a fórmula =IMAGE("url")
  * Assim o Google Sheets exibe a imagem real desenhada na célula em vez do texto base64.
