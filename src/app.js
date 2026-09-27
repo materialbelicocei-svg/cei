@@ -1008,6 +1008,50 @@ function formatarAssinaturaSrc(val) {
   return s;
 }
 
+const imagensAssinaturaDrive = new Map();
+
+async function carregarImagemAssinatura(img, valor) {
+  var src = formatarAssinaturaSrc(valor);
+  if (!src) return;
+
+  var idMatch = src.match(/[?&]id=([^&#]+)/);
+  if (idMatch) {
+    var fileId = decodeURIComponent(idMatch[1]);
+    try {
+      var imagemPromise = imagensAssinaturaDrive.get(fileId);
+      if (!imagemPromise) {
+        imagemPromise = (async function () {
+          var token = await getGoogleAccessToken();
+          if (!token) return '';
+          var response = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+            headers: { Authorization: 'Bearer ' + token }
+          });
+          if (!response.ok) return '';
+          var blob = await response.blob();
+          return await new Promise(function (resolve) {
+            var reader = new FileReader();
+            reader.onloadend = function () { resolve(reader.result || ''); };
+            reader.onerror = function () { resolve(''); };
+            reader.readAsDataURL(blob);
+          });
+        })();
+        imagensAssinaturaDrive.set(fileId, imagemPromise);
+      }
+      var dataUrl = await imagemPromise;
+      if (dataUrl) {
+        img.src = dataUrl;
+        return;
+      }
+      imagensAssinaturaDrive.delete(fileId);
+    } catch (e) {
+      imagensAssinaturaDrive.delete(fileId);
+      console.warn('Falha ao carregar assinatura privada do Drive:', e);
+    }
+  }
+
+  img.src = src;
+}
+
 async function prepararAssinaturaParaSheets(base64, nomeArquivo) {
   if (!base64 || typeof base64 !== 'string') return '';
   const raw = base64.trim();
@@ -1059,7 +1103,8 @@ function render(lista) {
     var tdF = document.createElement('td');
     tdF.id = 'cel-' + r.row + '-6';
     if (srcF && srcF.length > 20) {
-      tdF.innerHTML = '<img class="thumb" src="' + srcF + '"><div style="font-size:8px;color:#10b981;font-weight:900">BLOQUEADO</div>';
+      tdF.innerHTML = '<img class="thumb" alt="Assinatura retirada"><div style="font-size:8px;color:#10b981;font-weight:900">BLOQUEADO</div>';
+      carregarImagemAssinatura(tdF.querySelector('img'), r.f);
     } else {
       tdF.innerHTML = '<button class="btn-ass">ASSINAR F</button>';
       tdF.querySelector('button').addEventListener('click', function () { abrir(r.row, 6); });
@@ -1069,7 +1114,8 @@ function render(lista) {
     var tdG = document.createElement('td');
     tdG.id = 'cel-' + r.row + '-7';
     if (srcG && srcG.length > 20) {
-      tdG.innerHTML = '<img class="thumb" src="' + srcG + '"><div style="font-size:8px;color:#10b981;font-weight:900">BLOQUEADO</div>';
+      tdG.innerHTML = '<img class="thumb" alt="Assinatura do armeiro na retirada"><div style="font-size:8px;color:#10b981;font-weight:900">BLOQUEADO</div>';
+      carregarImagemAssinatura(tdG.querySelector('img'), r.g);
     } else {
       tdG.innerHTML = '<button class="btn-ass">ASSINAR G</button>';
       tdG.querySelector('button').addEventListener('click', function () { abrir(r.row, 7); });
@@ -1083,7 +1129,8 @@ function render(lista) {
     var tdI = document.createElement('td');
     tdI.id = 'cel-' + r.row + '-9';
     if (srcI && srcI.length > 20) {
-      tdI.innerHTML = '<img class="thumb" src="' + srcI + '"><div style="font-size:8px;color:#92400e;font-weight:900">BLOQUEADO</div>';
+      tdI.innerHTML = '<img class="thumb" alt="Assinatura na devolução"><div style="font-size:8px;color:#92400e;font-weight:900">BLOQUEADO</div>';
+      carregarImagemAssinatura(tdI.querySelector('img'), r.i);
     } else {
       tdI.innerHTML = '<button class="btn-ass dev">ASSINAR I</button>';
       tdI.querySelector('button').addEventListener('click', function () { abrir(r.row, 9); });
@@ -1093,7 +1140,8 @@ function render(lista) {
     var tdJ = document.createElement('td');
     tdJ.id = 'cel-' + r.row + '-10';
     if (srcJ && srcJ.length > 20) {
-      tdJ.innerHTML = '<img class="thumb" src="' + srcJ + '"><div style="font-size:8px;color:#92400e;font-weight:900">BLOQUEADO</div>';
+      tdJ.innerHTML = '<img class="thumb" alt="Assinatura do armeiro na devolução"><div style="font-size:8px;color:#92400e;font-weight:900">BLOQUEADO</div>';
+      carregarImagemAssinatura(tdJ.querySelector('img'), r.j);
     } else {
       tdJ.innerHTML = '<button class="btn-ass dev">ASSINAR J</button>';
       tdJ.querySelector('button').addEventListener('click', function () { abrir(r.row, 10); });
