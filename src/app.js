@@ -20,7 +20,8 @@ import {
   renameSheetTab,
   deleteSheetTab,
   generateRowId,
-  listSpreadsheetsFromDrive
+  listSpreadsheetsFromDrive,
+  uploadLocalSpreadsheetAsGoogleSheet
 } from './sheetsService.ts';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
@@ -31,6 +32,7 @@ const SHEET_ID_FIXO = getActiveSpreadsheetId();
 const COL_ASS = [6, 7, 9, 10];
 let currentUserGoogle = null;
 let currentGoogleToken = null;
+let arquivoPlanilhaLocal = null;
 
 function isAbaOculta(nome) {
   if (!nome) return true;
@@ -2450,6 +2452,76 @@ document.addEventListener('DOMContentLoaded', function () {
     el.addEventListener('click', function() {
       const m = document.getElementById('modalSelecionarPlanilha');
       if (m) m.style.display = 'none';
+    });
+  }
+
+  el = document.getElementById('btnEscolherArquivoLocal');
+  if (el) {
+    el.addEventListener('click', function() {
+      const input = document.getElementById('inputArquivoPlanilhaLocal');
+      if (input) input.click();
+    });
+  }
+
+  el = document.getElementById('inputArquivoPlanilhaLocal');
+  if (el) {
+    el.addEventListener('change', function() {
+      arquivoPlanilhaLocal = el.files && el.files[0] ? el.files[0] : null;
+      const nome = document.getElementById('nomeArquivoPlanilhaLocal');
+      const enviar = document.getElementById('btnEnviarArquivoLocal');
+      if (nome) nome.innerText = arquivoPlanilhaLocal ? arquivoPlanilhaLocal.name : 'Nenhum arquivo selecionado';
+      if (enviar) enviar.disabled = !arquivoPlanilhaLocal;
+    });
+  }
+
+  el = document.getElementById('btnEnviarArquivoLocal');
+  if (el) {
+    el.addEventListener('click', async function() {
+      const statusDiv = document.getElementById('statusPlanilhaConexao');
+      if (!arquivoPlanilhaLocal) return;
+      if (!currentGoogleToken) {
+        if (statusDiv) {
+          statusDiv.style.color = '#f59e0b';
+          statusDiv.innerText = 'Conecte sua conta Google antes de enviar o arquivo.';
+        }
+        return;
+      }
+
+      el.disabled = true;
+      el.innerText = 'Enviando e convertendo...';
+      if (statusDiv) {
+        statusDiv.style.color = '#3b82f6';
+        statusDiv.innerText = 'Criando uma nova planilha no seu Drive. A atual não será substituída.';
+      }
+
+      try {
+        const criada = await uploadLocalSpreadsheetAsGoogleSheet(arquivoPlanilhaLocal, currentGoogleToken);
+        const meta = await fetchSpreadsheetMetadata(criada.id, currentGoogleToken);
+        const abasVisiveis = meta.sheets.filter(nome => !isAbaOculta(nome));
+        setActiveSpreadsheetId(criada.id);
+        setStoredAbas(abasVisiveis.length ? abasVisiveis : meta.sheets);
+        abaAtual = (abasVisiveis[0] || meta.sheets[0] || 'GERAL');
+
+        const modal = document.getElementById('modalSelecionarPlanilha');
+        if (modal) modal.style.display = 'none';
+        arquivoPlanilhaLocal = null;
+        const input = document.getElementById('inputArquivoPlanilhaLocal');
+        if (input) input.value = '';
+        const nome = document.getElementById('nomeArquivoPlanilhaLocal');
+        if (nome) nome.innerText = 'Nenhum arquivo selecionado';
+
+        loadAbas();
+        status('✅ Nova planilha criada no Drive e selecionada: ' + criada.name);
+      } catch (error) {
+        console.error('Erro ao criar planilha Google a partir do arquivo local:', error);
+        if (statusDiv) {
+          statusDiv.style.color = '#ef4444';
+          statusDiv.innerText = error.message || 'Não foi possível enviar o arquivo ao Drive.';
+        }
+      } finally {
+        el.disabled = !arquivoPlanilhaLocal;
+        el.innerText = 'Enviar cópia nova ao Drive';
+      }
     });
   }
 

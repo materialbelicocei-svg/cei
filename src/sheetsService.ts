@@ -141,6 +141,49 @@ export async function listSpreadsheetsFromDrive(accessToken: string): Promise<{ 
   }
 }
 
+export async function uploadLocalSpreadsheetAsGoogleSheet(
+  file: File,
+  accessToken: string
+): Promise<{ id: string; name: string }> {
+  if (!file || !/\.xlsx$/i.test(file.name)) {
+    throw new Error('Selecione um arquivo .xlsx válido.');
+  }
+
+  const boundary = 'cei_xlsx_' + Date.now().toString(36);
+  const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const metadata = {
+    name: file.name.replace(/\.xlsx$/i, '') || file.name,
+    mimeType: 'application/vnd.google-apps.spreadsheet'
+  };
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
+    file,
+    `\r\n--${boundary}--`
+  ], { type: `multipart/related; boundary=${boundary}` });
+
+  const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || `Falha ao enviar o arquivo ao Drive (HTTP ${response.status}).`);
+  }
+
+  const createdFile = await response.json();
+  if (!createdFile.id || createdFile.mimeType !== 'application/vnd.google-apps.spreadsheet') {
+    throw new Error('O Drive não converteu o arquivo em uma planilha Google.');
+  }
+
+  return { id: createdFile.id, name: createdFile.name || metadata.name };
+}
+
 /**
  * Gera um ID único e resistente a colisões
  */
