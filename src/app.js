@@ -403,7 +403,7 @@ window.google.script.run = {
           );
           realRow = res.row;
         } catch (err) {
-          console.warn('Erro ao inserir linha no Sheets:', err);
+          throw new Error('Não foi possível gravar o novo registro no Google Sheets: ' + (err.message || err));
         }
       }
 
@@ -446,7 +446,7 @@ window.google.script.run = {
           // Atualiza célula com trava de segurança por ID único!
           await updateCellWithIdCheck(sheetId, nomeAba || 'GERAL', targetId, row, col, base64, token);
         } catch (err) {
-          console.warn('Erro ao sincronizar assinatura no Sheets:', err);
+          throw new Error('Não foi possível sincronizar a assinatura: ' + (err.message || err));
         }
       }
       const dados = getStoredAbaDados(nomeAba);
@@ -474,7 +474,7 @@ window.google.script.run = {
         try {
           await updateCellWithIdCheck(sheetId, nomeAba || 'GERAL', targetId, row, col, novo, token);
         } catch (err) {
-          console.warn('Erro ao atualizar célula no Sheets:', err);
+          throw new Error('Não foi possível atualizar o registro no Google Sheets: ' + (err.message || err));
         }
       }
       const dados = getStoredAbaDados(nomeAba);
@@ -510,7 +510,7 @@ window.google.script.run = {
         try {
           await deleteRowWithIdCheck(sheetId, nomeAba || 'GERAL', targetId, row, token);
         } catch (err) {
-          console.warn('Erro ao apagar linha no Sheets:', err);
+          throw new Error('Não foi possível apagar o registro no Google Sheets: ' + (err.message || err));
         }
       }
       const dados = getStoredAbaDados(nomeAba);
@@ -1047,7 +1047,7 @@ async function prepararAssinaturaParaSheets(base64, nomeArquivo) {
   const token = await getGoogleAccessToken();
   if (!token) return base64Normalizado;
   const valor = await uploadSignatureToDriveAndGetFormula(base64Normalizado, nomeArquivo || 'assinatura', token);
-  return valor || base64Normalizado;
+  return valor || '';
 }
 
 function render(lista) {
@@ -1410,6 +1410,18 @@ async function processarFila() {
     const assI = await prepararAssinaturaParaSheets(item.data.assI, 'assI_' + (item.data.nome || 'novo'));
     const assJ = await prepararAssinaturaParaSheets(item.data.assJ, 'assJ_' + (item.data.nome || 'novo'));
 
+    const uploadFalhou = [
+      [item.data.assF, assF],
+      [item.data.assG, assG],
+      [item.data.assI, assI],
+      [item.data.assJ, assJ]
+    ].some(function ([original, convertido]) { return original && !convertido; });
+    if (uploadFalhou) {
+      status('⚠ Upload da assinatura falhou; mantendo na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
+      return;
+    }
+
     google.script.run.withSuccessHandler(function (r) {
       var realRow = typeof r === 'number' ? r : (r && r.row ? r.row : 2);
       var idx = dadosBrutos.findIndex(function (x) { return x.row == item.data.tempRow; });
@@ -1428,7 +1440,8 @@ async function processarFila() {
       if (filaEnvio.length > 0) setTimeout(processarFila, 400);
       else status('✅ Tudo gravado');
     }).withFailureHandler(function () {
-      status('❌ Falha, tenta depois');
+      status('❌ Falha ao gravar o registro; ele permanece na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
     }).criarNovaLinhaComAss(
       abaAtual,
       item.data.dataRet,
@@ -1445,23 +1458,37 @@ async function processarFila() {
     );
   } else if (item.type == 'ass') {
     const valorParaSheets = await prepararAssinaturaParaSheets(item.data.img, 'assinatura_' + item.data.row + '_' + item.data.col);
+    if (!valorParaSheets) {
+      status('⚠ Upload da assinatura falhou; mantendo na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
+      return;
+    }
     google.script.run.withSuccessHandler(function () {
       filaEnvio.shift();
       salvarFila();
       if (filaEnvio.length > 0) setTimeout(processarFila, 400);
       else status('✅ Assinatura gravada');
+    }).withFailureHandler(function () {
+      status('❌ Falha ao gravar assinatura; mantendo na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
     }).salvarNaCelula(valorParaSheets, item.data.row, item.data.col, abaAtual, item.data.nomeMilitar, item.data.id);
   } else if (item.type == 'texto') {
     google.script.run.withSuccessHandler(function () {
       filaEnvio.shift();
       salvarFila();
       if (filaEnvio.length > 0) setTimeout(processarFila, 400);
+    }).withFailureHandler(function () {
+      status('❌ Falha ao salvar a edição; mantendo na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
     }).salvarTextoInline(abaAtual, item.data.row, item.data.col, item.data.val, item.data.id);
   } else if (item.type == 'apagar') {
     google.script.run.withSuccessHandler(function () {
       filaEnvio.shift();
       salvarFila();
       if (filaEnvio.length > 0) setTimeout(processarFila, 400);
+    }).withFailureHandler(function () {
+      status('❌ Falha ao apagar o registro; mantendo na fila para tentar novamente.');
+      setTimeout(processarFila, 5000);
     }).apagarLinha(abaAtual, item.data.row, item.data.id);
   }
 }
@@ -1496,7 +1523,10 @@ function sincronizarManual() {
           salvarLocal();
         }
         ok();
-      }).withFailureHandler(ok).criarNovaLinhaComAss(
+      }).withFailureHandler(function (e) {
+        if (btn) { btn.disabled = false; btn.innerText = '🔄 Sincronizar'; }
+        status('❌ Falha ao gravar registro: ' + (e && e.message ? e.message : 'tente novamente'));
+      }).criarNovaLinhaComAss(
         abaAtual,
         it.data.dataRet,
         it.data.nome,
@@ -1512,11 +1542,20 @@ function sincronizarManual() {
         it.data.id
       );
     } else if (it.type == 'ass') {
-      google.script.run.withSuccessHandler(ok).withFailureHandler(ok).salvarNaCelula(it.data.img, it.data.row, it.data.col, abaAtual, it.data.nomeMilitar, it.data.id);
+      google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) {
+        if (btn) { btn.disabled = false; btn.innerText = '🔄 Sincronizar'; }
+        status('❌ Falha ao sincronizar assinatura: ' + (e && e.message ? e.message : 'tente novamente'));
+      }).salvarNaCelula(it.data.img, it.data.row, it.data.col, abaAtual, it.data.nomeMilitar, it.data.id);
     } else if (it.type == 'texto') {
-      google.script.run.withSuccessHandler(ok).withFailureHandler(ok).salvarTextoInline(abaAtual, it.data.row, it.data.col, it.data.val, it.data.id);
+      google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) {
+        if (btn) { btn.disabled = false; btn.innerText = '🔄 Sincronizar'; }
+        status('❌ Falha ao salvar edição: ' + (e && e.message ? e.message : 'tente novamente'));
+      }).salvarTextoInline(abaAtual, it.data.row, it.data.col, it.data.val, it.data.id);
     } else {
-      google.script.run.withSuccessHandler(ok).withFailureHandler(ok).apagarLinha(abaAtual, it.data.row, it.data.id);
+      google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) {
+        if (btn) { btn.disabled = false; btn.innerText = '🔄 Sincronizar'; }
+        status('❌ Falha ao apagar registro: ' + (e && e.message ? e.message : 'tente novamente'));
+      }).apagarLinha(abaAtual, it.data.row, it.data.id);
     }
   };
 
@@ -1650,6 +1689,8 @@ function salvarCopiaLocal() {
     link.click();
     document.body.removeChild(link);
     status('📥 Planilha Excel (.xlsx) baixada com sucesso!');
+  }).withFailureHandler(function (e) {
+    status('❌ Não foi possível gerar o arquivo: ' + (e && e.message ? e.message : 'tente novamente'));
   }).getUrlExportacao(abaAtual, 'xlsx');
 }
 
@@ -1659,6 +1700,8 @@ function enviarCopiaEmail() {
   status('✉️ Preparando cópia para ' + email + '...');
   google.script.run.withSuccessHandler(function (msg) {
     status('✅ ' + msg);
+  }).withFailureHandler(function (e) {
+    status('❌ Não foi possível enviar a cópia: ' + (e && e.message ? e.message : 'tente novamente'));
   }).enviarCopiaPorEmail(email, abaAtual);
 }
 

@@ -170,7 +170,7 @@ export async function readSheetRows(
 ): Promise<SheetRowData[]> {
   const safeName = sheetName.replace(/'/g, "''");
   const range = `'${safeName}'!A1:L`;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueRenderOption=FORMATTED_VALUE`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueRenderOption=FORMULA`;
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` }
   });
@@ -559,6 +559,9 @@ export async function updateCellWithIdCheck(
   let finalVal = value;
   if ((colNumber === 6 || colNumber === 7 || colNumber === 9 || colNumber === 10) && value) {
     finalVal = await uploadSignatureToDriveAndGetFormula(value, `ass_col${colNumber}_row${actualRow}`, accessToken);
+    if (!finalVal) {
+      throw new Error('Não foi possível enviar a assinatura; a célula não foi alterada.');
+    }
   }
 
   const colLetter = String.fromCharCode(64 + colNumber);
