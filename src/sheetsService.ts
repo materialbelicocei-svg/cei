@@ -184,6 +184,52 @@ export async function uploadLocalSpreadsheetAsGoogleSheet(
   return { id: createdFile.id, name: createdFile.name || metadata.name };
 }
 
+export async function restoreLocalSpreadsheetSignatures(
+  spreadsheetId: string,
+  sheetName: string,
+  images: { row: number; col: number; dataUrl: string }[],
+  accessToken: string
+): Promise<number> {
+  const data: { range: string; values: string[][] }[] = [];
+
+  for (const image of images) {
+    const formula = await uploadSignatureToDriveAndGetFormula(
+      image.dataUrl,
+      `assinatura_${sheetName}_${image.row}_${image.col}`,
+      accessToken
+    );
+    if (!formula) {
+      throw new Error(`Não foi possível enviar a assinatura da linha ${image.row}.`);
+    }
+
+    const colLetter = String.fromCharCode(64 + image.col);
+    const safeName = sheetName.replace(/'/g, "''");
+    data.push({
+      range: `'${safeName}'!${colLetter}${image.row}`,
+      values: [[formula]]
+    });
+  }
+
+  if (data.length === 0) return 0;
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error?.message || 'Não foi possível vincular as assinaturas à nova planilha.');
+  }
+
+  return data.length;
+}
+
 /**
  * Gera um ID único e resistente a colisões
  */
@@ -206,6 +252,23 @@ export async function fetchSpreadsheetMetadata(spreadsheetId: string, accessToke
   const data = await res.json();
   const sheets = (data.sheets || []).map((s: any) => s.properties?.title || '').filter(Boolean);
   return { sheets, raw: data };
+}
+
+function formatSheetDate(value: any): string {
+  if (value === undefined || value === null || String(value).trim() === '') return '';
+  const text = String(value).trim();
+  const serial = typeof value === 'number' || /^\d{4,6}(?:\.\d+)?$/.test(text) ? Number(value) : NaN;
+
+  if (Number.isFinite(serial) && serial >= 20000 && serial <= 100000) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    return `${day}/${month}/${date.getUTCFullYear()}`;
+  }
+
+  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDate) return `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}`;
+  return text;
 }
 
 /**
@@ -266,14 +329,14 @@ export async function readSheetRows(
     rows.push({
       id: idUnico,
       row: rowNumber,
-      data: cols[0] ? String(cols[0]).trim() : '',
+      data: formatSheetDate(cols[0]),
       nome: nomeMilitar,
       arma: cols[2] ? String(cols[2]).trim() : '',
       equip: cols[3] ? String(cols[3]).trim() : '',
       mun: cols[4] ? String(cols[4]).trim() : '',
       f: cols[5] ? String(cols[5]).trim() : '',
       g: cols[6] ? String(cols[6]).trim() : '',
-      dataDev: cols[7] ? String(cols[7]).trim() : '',
+      dataDev: formatSheetDate(cols[7]),
       i: cols[8] ? String(cols[8]).trim() : '',
       j: cols[9] ? String(cols[9]).trim() : '',
       obs: cols[10] ? String(cols[10]).trim() : ''

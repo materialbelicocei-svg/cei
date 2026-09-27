@@ -21,7 +21,8 @@ import {
   deleteSheetTab,
   generateRowId,
   listSpreadsheetsFromDrive,
-  uploadLocalSpreadsheetAsGoogleSheet
+  uploadLocalSpreadsheetAsGoogleSheet,
+  restoreLocalSpreadsheetSignatures
 } from './sheetsService.ts';
 import ExcelJS from 'exceljs/dist/exceljs.min.js';
 
@@ -33,6 +34,246 @@ const COL_ASS = [6, 7, 9, 10];
 let currentUserGoogle = null;
 let currentGoogleToken = null;
 let arquivoPlanilhaLocal = null;
+let planilhaLocalImportada = null;
+let planilhaLocalAtiva = false;
+let bancoPlanilhaLocalPromise = null;
+let filaPersistenciaLocal = Promise.resolve();
+
+function abrirBancoPlanilhaLocal() {
+  if (bancoPlanilhaLocalPromise) return bancoPlanilhaLocalPromise;
+  bancoPlanilhaLocalPromise = new Promise(function(resolve, reject) {
+    if (!window.indexedDB) {
+      reject(new Error('Este navegador não oferece armazenamento local persistente.'));
+      return;
+    }
+    const request = window.indexedDB.open('cei-planilhas-locais', 1);
+    request.onupgradeneeded = function() {
+      if (!request.result.objectStoreNames.contains('planilhas')) request.result.createObjectStore('planilhas');
+    };
+    request.onsuccess = function() { resolve(request.result); };
+    request.onerror = function() {
+      bancoPlanilhaLocalPromise = null;
+      reject(request.error || new Error('Não foi possível abrir o armazenamento local.'));
+    };
+  });
+  return bancoPlanilhaLocalPromise;
+}
+
+function persistirPlanilhaLocal() {
+  if (!planilhaLocalImportada) return Promise.resolve();
+  const registro = {
+    fileName: arquivoPlanilhaLocal ? arquivoPlanilhaLocal.name : 'Planilha local',
+    file: arquivoPlanilhaLocal,
+    activeSheet: abaAtual,
+    sheets: planilhaLocalImportada.map(sheet => ({
+      sheetName: sheet.sheetName,
+      sheetIndex: sheet.sheetIndex,
+      images: sheet.images,
+      rows: sheet.rows.map(row => Object.assign({}, row))
+    }))
+  };
+  filaPersistenciaLocal = filaPersistenciaLocal.catch(function() {}).then(async function() {
+    const db = await abrirBancoPlanilhaLocal();
+    await new Promise(function(resolve, reject) {
+      const transaction = db.transaction('planilhas', 'readwrite');
+      transaction.objectStore('planilhas').put(registro, 'ativa');
+      transaction.oncomplete = resolve;
+      transaction.onerror = function() { reject(transaction.error || new Error('Falha ao salvar o arquivo local.')); };
+      transaction.onabort = function() { reject(transaction.error || new Error('Salvamento local cancelado.')); };
+    });
+  });
+  return filaPersistenciaLocal;
+}
+
+async function restaurarPlanilhaLocalPersistida() {
+  if (localStorage.getItem('cei_modo_dados') !== 'local') return false;
+  try {
+    const db = await abrirBancoPlanilhaLocal();
+    const registro = await new Promise(function(resolve, reject) {
+      const request = db.transaction('planilhas', 'readonly').objectStore('planilhas').get('ativa');
+      request.onsuccess = function() { resolve(request.result || null); };
+      request.onerror = function() { reject(request.error); };
+    });
+    if (!registro || !Array.isArray(registro.sheets) || registro.sheets.length === 0) return false;
+    planilhaLocalImportada = registro.sheets;
+    arquivoPlanilhaLocal = registro.file || null;
+    planilhaLocalAtiva = true;
+    abaAtual = registro.activeSheet || registro.sheets[0].sheetName;
+    const filtroMes = document.getElementById('filtroMes');
+    if (filtroMes) filtroMes.value = '-1';
+    const nome = document.getElementById('nomeArquivoPlanilhaLocal');
+    if (nome) nome.innerText = registro.fileName || 'Planilha local salva neste navegador';
+    return true;
+  } catch (error) {
+    console.warn('Não foi possível restaurar a planilha local:', error);
+    return false;
+  }
+}
+
+function valorCelulaExcel(cell) {
+  const value = cell ? cell.value : '';
+  if (value === undefined || value === null) return '';
+  if (value instanceof Date) return value;
+  if (typeof value === 'object') {
+    if (Array.isArray(value.richText)) return value.richText.map(part => part.text || '').join('');
+    if (value.text !== undefined) return value.text;
+    if (value.result !== undefined) return value.result;
+    return '';
+  }
+  return value;
+}
+
+function textoCelulaExcel(cell) {
+  const value = valorCelulaExcel(cell);
+  if (value instanceof Date) {
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    return `${day}/${month}/${value.getUTCFullYear()}`;
+  }
+  return value === '' ? '' : String(value).trim();
+}
+
+function formatarDataExcel(value) {
+  if (value instanceof Date) {
+    const day = String(value.getUTCDate()).padStart(2, '0');
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    return `${day}/${month}/${value.getUTCFullYear()}`;
+  }
+
+  const text = String(value || '').trim();
+  const serial = typeof value === 'number' || /^\d{4,6}(?:\.\d+)?$/.test(text) ? Number(value) : NaN;
+  if (Number.isFinite(serial) && serial >= 20000 && serial <= 100000) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
+    return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`;
+  }
+
+  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return isoDate ? `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}` : text;
+}
+
+function normalizarCabecalhoExcel(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+}
+
+function codificarImagemExcel(media) {
+  if (media.base64) return media.base64;
+  if (!media.buffer) return '';
+
+  if (typeof media.buffer.toString === 'function') {
+    const encoded = media.buffer.toString('base64');
+    if (/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return encoded;
+  }
+
+  const bytes = media.buffer instanceof Uint8Array ? media.buffer : new Uint8Array(media.buffer);
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(offset, offset + 0x8000)));
+  }
+  return btoa(binary);
+}
+
+async function lerPlanilhaXlsxLocal(file) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await file.arrayBuffer());
+  if (!workbook.worksheets.length) throw new Error('O arquivo não contém abas para carregar.');
+
+  return workbook.worksheets.map(function(worksheet, sheetIndex) {
+    const images = [];
+    const imagesByCell = new Map();
+    const defaultColumns = { data: 1, nome: 2, arma: 3, equip: 4, mun: 5, f: 6, g: 7, dataDev: 8, i: 9, j: 10, obs: 11, id: 12 };
+    const headers = worksheet.getRow(1).values.slice(1).map(normalizarCabecalhoExcel);
+    const hasHeader = headers.some(header => header.includes('DATA')) && headers.some(header => header.includes('NOME'));
+    const columns = Object.assign({}, defaultColumns);
+
+    if (hasHeader) {
+      const locate = (predicate, fallback) => {
+        const index = headers.findIndex(predicate);
+        return index >= 0 ? index + 1 : fallback;
+      };
+      columns.data = locate(header => header.includes('DATA') && !header.includes('DEV'), columns.data);
+      columns.nome = locate(header => header.includes('NOME') || header.includes('GRADUACAO'), columns.nome);
+      columns.arma = locate(header => header.includes('ARMAMENTO') || header === 'ARMAS', columns.arma);
+      columns.equip = locate(header => header.includes('EQUIP'), columns.equip);
+      columns.mun = locate(header => header.includes('MUNI'), columns.mun);
+      columns.f = locate(header => header.includes('ASS') && !header.includes('ARMEIRO') && (header.includes('RETIRADA') || header.includes('USUARIO RET')), columns.f);
+      columns.g = locate(header => header.includes('ASS') && header.includes('ARMEIRO') && (header.includes('ENTREGA') || header.includes('RETIRADA')), columns.g);
+      columns.dataDev = locate(header => header.includes('DATA') && header.includes('DEV'), columns.dataDev);
+      columns.i = locate(header => header.includes('ASS') && !header.includes('ARMEIRO') && header.includes('DEVOLUCAO'), columns.i);
+      columns.j = locate(header => header.includes('ASS') && header.includes('ARMEIRO') && (header.includes('RECEB') || header.includes('DEV')), columns.j);
+      columns.obs = locate(header => header.includes('OBS'), columns.obs);
+      columns.id = locate(header => header === 'ID' || header.includes('ID UNICO'), columns.id);
+    }
+
+    const signatureColumnRoles = new Map([
+      [columns.f - 1, 'f'], [columns.g - 1, 'g'], [columns.i - 1, 'i'], [columns.j - 1, 'j']
+    ]);
+
+    (worksheet.getImages() || []).forEach(function(image) {
+      const anchor = image.range && image.range.tl;
+      if (!anchor) return;
+      const sourceColumn = Math.round(anchor.col);
+      if (!signatureColumnRoles.has(sourceColumn)) return;
+
+      const media = workbook.getImage(image.imageId);
+      if (!media) throw new Error('Não foi possível ler uma assinatura do arquivo local.');
+      let base64 = codificarImagemExcel(media);
+      if (!base64) throw new Error('Não foi possível converter uma assinatura do arquivo local.');
+      if (base64.startsWith('data:image/')) {
+        const row = Math.floor(anchor.row) + 1;
+        const col = sourceColumn + 1;
+        const role = signatureColumnRoles.get(sourceColumn);
+        const dataUrl = base64;
+        imagesByCell.set(`${row - 1}:${sourceColumn}`, { role, dataUrl });
+        images.push({ row, col, dataUrl });
+        return;
+      }
+      const extension = String(media.extension || 'png').toLowerCase();
+      const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : `image/${extension}`;
+      const dataUrl = `data:${mime};base64,${base64}`;
+      const row = Math.floor(anchor.row) + 1;
+      const col = sourceColumn + 1;
+      const role = signatureColumnRoles.get(sourceColumn);
+      imagesByCell.set(`${row - 1}:${sourceColumn}`, { role, dataUrl });
+      images.push({
+        row,
+        col,
+        dataUrl
+      });
+    });
+
+    const rows = [];
+    const firstDataRow = hasHeader ? 2 : 1;
+    for (let rowNumber = firstDataRow; rowNumber <= worksheet.rowCount; rowNumber++) {
+      const row = worksheet.getRow(rowNumber);
+      const nome = textoCelulaExcel(row.getCell(columns.nome));
+      const values = row.values.slice(1);
+      if (!nome || !values.some(value => value !== null && value !== undefined && String(value).trim() !== '')) continue;
+
+      const signature = role => {
+        const col = columns[role] - 1;
+        return imagesByCell.get(`${rowNumber - 1}:${col}`)?.dataUrl || textoCelulaExcel(row.getCell(columns[role]));
+      };
+      rows.push({
+        id: textoCelulaExcel(row.getCell(columns.id)) || generateRowId(),
+        row: -(Date.now() + sheetIndex * 100000 + rowNumber),
+        data: formatarDataExcel(valorCelulaExcel(row.getCell(columns.data))),
+        nome,
+        arma: textoCelulaExcel(row.getCell(columns.arma)),
+        equip: textoCelulaExcel(row.getCell(columns.equip)),
+        mun: textoCelulaExcel(row.getCell(columns.mun)),
+        f: signature('f'),
+        g: signature('g'),
+        dataDev: formatarDataExcel(valorCelulaExcel(row.getCell(columns.dataDev))),
+        i: signature('i'),
+        j: signature('j'),
+        obs: textoCelulaExcel(row.getCell(columns.obs)),
+        _temp: true
+      });
+    }
+
+    return { sheetName: worksheet.name, sheetIndex, images, rows };
+  }).filter(function(sheet) { return sheet.rows.length > 0 || sheet.images.length > 0; });
+}
 
 function isAbaOculta(nome) {
   if (!nome) return true;
@@ -533,7 +774,7 @@ window.google.script.run = {
   },
   getUrlExportacao: async function(nomeAba, formato) {
     try {
-      const dados = getStoredAbaDados(nomeAba);
+      const dados = planilhaLocalAtiva ? dadosBrutos.slice() : getStoredAbaDados(nomeAba);
 
       async function toDataUrlFromSource(src) {
         if (!src) return '';
@@ -756,6 +997,7 @@ function salvarFila() {
   atualizarIndicadorFila();
 }
 function addFila(op) {
+  if (planilhaLocalAtiva) return;
   if (op.type === 'ass' && (!op.data || !op.data.img || op.data.img.length < 100)) return;
   carregarFila();
   op.id = Date.now() + '_' + Math.random().toString(36).substr(2, 5);
@@ -785,6 +1027,15 @@ function carregarLocal() {
   }
 }
 function salvarLocal() {
+  if (planilhaLocalAtiva && planilhaLocalImportada) {
+    const grupo = planilhaLocalImportada.find(sheet => sheet.sheetName === abaAtual);
+    if (grupo) grupo.rows = dadosBrutos.map(row => Object.assign({}, row));
+    persistirPlanilhaLocal().catch(function(error) {
+      console.error('Falha ao salvar alterações locais:', error);
+      status('❌ Não foi possível salvar neste navegador: ' + error.message);
+    });
+    return;
+  }
   try { localStorage.setItem(getChaveLocal(), JSON.stringify(dadosBrutos)); } catch (e) {}
 }
 function status(msg) {
@@ -810,7 +1061,8 @@ function verificarBloqueio() {
   return false;
 }
 
-function inicializarApp() {
+async function inicializarApp() {
+  await restaurarPlanilhaLocalPersistida();
   loadAbas();
   var hoje = new Date().toISOString().split('T')[0];
   var el = document.getElementById('dataRet');
@@ -865,6 +1117,12 @@ function verificarSenha() {
 }
 
 function uniaoDados(server, local) {
+  local = (local || []).map(function(row) {
+    var normalized = Object.assign({}, row);
+    normalized.data = formatarDataExcel(normalized.data);
+    normalized.dataDev = formatarDataExcel(normalized.dataDev);
+    return normalized;
+  });
   var mapaLocalPorId = {};
   var mapaLocalPorNomeData = {};
   var mapaLocalPorNome = {};
@@ -883,6 +1141,8 @@ function uniaoDados(server, local) {
 
   var resultado = (server || []).map(function (s, sIdx) {
     var item = Object.assign({}, s);
+    item.data = formatarDataExcel(item.data);
+    item.dataDev = formatarDataExcel(item.dataDev);
     if (!item.row) item.row = sIdx + 2;
 
     // Busca dados locais correspondentes pelo ID, Nome+Data ou Nome
@@ -931,6 +1191,34 @@ function uniaoDados(server, local) {
 }
 
 function loadDados() {
+  if (planilhaLocalAtiva && planilhaLocalImportada) {
+    const grupo = planilhaLocalImportada.find(sheet => sheet.sheetName === abaAtual);
+    dadosBrutos = grupo ? grupo.rows.map(function(row) {
+      const normalized = Object.assign({}, row);
+      normalized.data = formatarDataExcel(normalized.data);
+      normalized.dataDev = formatarDataExcel(normalized.dataDev);
+      return normalized;
+    }) : [];
+    if (grupo) {
+      grupo.rows = dadosBrutos.map(row => Object.assign({}, row));
+      persistirPlanilhaLocal().catch(error => console.warn('Falha ao persistir datas normalizadas:', error));
+    }
+    render(dadosBrutos);
+    filtrarPorNome();
+    const botaoSync = document.getElementById('btnSinc');
+    if (botaoSync) {
+      botaoSync.innerText = '💾 Salvar local';
+      botaoSync.title = 'Salvar alterações neste navegador';
+    }
+    status('Arquivo local: ' + dadosBrutos.length + ' registros');
+    return;
+  }
+
+  const botaoSync = document.getElementById('btnSinc');
+  if (botaoSync) {
+    botaoSync.innerText = '🔄 Sincronizar Sheets';
+    botaoSync.title = 'Enviar alterações pendentes e buscar os dados remotos';
+  }
   carregarFila();
   var local = carregarLocal();
   dadosBrutos = local;
@@ -1408,6 +1696,7 @@ function limparFormulario() {
 }
 
 async function processarFila() {
+  if (planilhaLocalAtiva) return;
   carregarFila();
   if (filaEnvio.length == 0) return;
   if (!navigator.onLine) { status('⚠ Offline ' + filaEnvio.length); return; }
@@ -1505,6 +1794,25 @@ async function processarFila() {
 }
 
 function sincronizarManual() {
+  if (planilhaLocalAtiva) {
+    const botaoLocal = document.getElementById('btnSinc');
+    if (botaoLocal) {
+      botaoLocal.disabled = true;
+      botaoLocal.innerText = '💾 Salvando...';
+    }
+    persistirPlanilhaLocal().then(function() {
+      status('💾 Arquivo salvo neste navegador. Use Baixar para gerar o .xlsx atualizado.');
+    }).catch(function(error) {
+      status('❌ Falha ao salvar o arquivo local: ' + error.message);
+    }).finally(function() {
+      if (botaoLocal) {
+        botaoLocal.disabled = false;
+        botaoLocal.innerText = '💾 Salvar local';
+      }
+    });
+    return;
+  }
+
   var btn = document.getElementById('btnSinc');
   if (btn) { btn.disabled = true; btn.innerText = '⏳ Enviando fila...'; }
   carregarFila();
@@ -1593,6 +1901,29 @@ function sincronizarManual() {
 }
 
 function loadAbas() {
+  if (planilhaLocalAtiva && planilhaLocalImportada) {
+    var localTabs = document.getElementById('tabs');
+    if (!localTabs) return;
+    localTabs.innerHTML = '';
+    var gruposVisiveis = planilhaLocalImportada.filter(sheet => !isAbaOculta(sheet.sheetName));
+    if (gruposVisiveis.length === 0) gruposVisiveis = planilhaLocalImportada;
+    gruposVisiveis.forEach(function(sheet) {
+      var tab = document.createElement('div');
+      tab.className = 'tab' + (sheet.sheetName === abaAtual ? ' active' : '');
+      var label = document.createElement('span');
+      label.className = 'tab-nome';
+      label.textContent = sheet.sheetName;
+      tab.appendChild(label);
+      label.addEventListener('click', function() {
+        abaAtual = sheet.sheetName;
+        loadAbas();
+        loadDados();
+      });
+      localTabs.appendChild(tab);
+    });
+    return;
+  }
+
   google.script.run.withSuccessHandler(function (abas) {
     var t = document.getElementById('tabs');
     if (!t) return;
@@ -1797,6 +2128,7 @@ function pos(e) {
 function isLinhaValida(row) {
   var item = dadosBrutos.find(function (x) { return x.row == row; });
   if (!item) return false;
+  if (planilhaLocalAtiva) return !!(item.nome && item.nome.trim());
   if (item._temp) return false;
   if (!item.nome || item.nome.trim() === '') return false;
   if (item.row <= 0) return false;
@@ -2410,7 +2742,9 @@ document.addEventListener('DOMContentLoaded', function () {
           listContainer.innerHTML = '<div style="text-align:center;padding:16px;color:#64748b;font-size:12px">Carregando planilhas do Drive...</div>';
         }
         try {
-          const files = await listSpreadsheetsFromDrive(currentGoogleToken);
+          const files = (await listSpreadsheetsFromDrive(currentGoogleToken)).filter(function(file) {
+            return file.mimeType === 'application/vnd.google-apps.spreadsheet';
+          });
           if (statusDiv) {
             statusDiv.style.color = '#10b981';
             statusDiv.innerText = '✔ Encontradas ' + files.length + ' planilhas no Google Drive:';
@@ -2428,10 +2762,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 item.addEventListener('click', () => {
                   if (input) input.value = f.id;
                   setActiveSpreadsheetId(f.id);
+                  planilhaLocalAtiva = false;
+                  planilhaLocalImportada = null;
+                  localStorage.setItem('cei_modo_dados', 'remoto');
+                  abaAtual = '';
                   if (m) m.style.display = 'none';
                   status('✔ Planilha selecionada: ' + f.name);
-                  loadAbas();
-                  sincronizarManual();
+                  fetchSpreadsheetMetadata(f.id, currentGoogleToken).then(function(meta) {
+                    const abasVisiveis = meta.sheets.filter(nome => !isAbaOculta(nome));
+                    setStoredAbas(abasVisiveis.length ? abasVisiveis : meta.sheets);
+                    abaAtual = (abasVisiveis[0] || meta.sheets[0] || 'GERAL');
+                    loadAbas();
+                    sincronizarManual();
+                  }).catch(function(error) {
+                    status('❌ Não foi possível abrir a planilha: ' + error.message);
+                  });
                 });
                 listContainer.appendChild(item);
               });
@@ -2465,20 +2810,74 @@ document.addEventListener('DOMContentLoaded', function () {
 
   el = document.getElementById('inputArquivoPlanilhaLocal');
   if (el) {
-    el.addEventListener('change', function() {
-      arquivoPlanilhaLocal = el.files && el.files[0] ? el.files[0] : null;
+    const inputArquivo = el;
+    inputArquivo.addEventListener('change', async function(event) {
+      arquivoPlanilhaLocal = event.currentTarget.files && event.currentTarget.files[0] ? event.currentTarget.files[0] : null;
+      planilhaLocalImportada = null;
       const nome = document.getElementById('nomeArquivoPlanilhaLocal');
       const enviar = document.getElementById('btnEnviarArquivoLocal');
+      const statusDiv = document.getElementById('statusPlanilhaConexao');
       if (nome) nome.innerText = arquivoPlanilhaLocal ? arquivoPlanilhaLocal.name : 'Nenhum arquivo selecionado';
-      if (enviar) enviar.disabled = !arquivoPlanilhaLocal;
+      if (!arquivoPlanilhaLocal) return;
+
+      if (enviar) {
+        enviar.disabled = true;
+        enviar.innerText = 'Lendo arquivo...';
+      }
+      if (statusDiv) {
+        statusDiv.style.color = '#3b82f6';
+        statusDiv.innerText = 'Lendo as abas, linhas e assinaturas do arquivo local...';
+      }
+
+      try {
+        const grupos = await lerPlanilhaXlsxLocal(arquivoPlanilhaLocal);
+        const visiveis = grupos.filter(sheet => !isAbaOculta(sheet.sheetName));
+        planilhaLocalImportada = grupos;
+        const gruposComDados = (visiveis.length ? visiveis : grupos).filter(sheet => sheet.rows.length > 0);
+        const primeiraAba = gruposComDados[0];
+        if (!primeiraAba || primeiraAba.rows.length === 0) {
+          throw new Error('Não encontrei linhas com nome na primeira aba visível do arquivo.');
+        }
+
+        planilhaLocalAtiva = true;
+        localStorage.setItem('cei_modo_dados', 'local');
+        abaAtual = primeiraAba.sheetName;
+        const filtroMesLocal = document.getElementById('filtroMes');
+        if (filtroMesLocal) filtroMesLocal.value = '-1';
+        const buscaLocal = document.getElementById('buscaNome');
+        if (buscaLocal) buscaLocal.value = '';
+        await persistirPlanilhaLocal();
+        loadAbas();
+        loadDados();
+        if (statusDiv) {
+          statusDiv.style.color = '#10b981';
+          statusDiv.innerText = `Arquivo local carregado: ${primeiraAba.rows.length} registros na aba ${primeiraAba.sheetName}.`;
+        }
+      } catch (error) {
+        planilhaLocalAtiva = false;
+        planilhaLocalImportada = null;
+        localStorage.setItem('cei_modo_dados', 'remoto');
+        loadAbas();
+        loadDados();
+        if (statusDiv) {
+          statusDiv.style.color = '#ef4444';
+          statusDiv.innerText = error.message || 'Não foi possível ler o arquivo .xlsx.';
+        }
+      } finally {
+        if (enviar) {
+          enviar.disabled = !arquivoPlanilhaLocal || !planilhaLocalImportada;
+          enviar.innerText = 'Criar cópia no Drive';
+        }
+      }
     });
   }
 
   el = document.getElementById('btnEnviarArquivoLocal');
   if (el) {
-    el.addEventListener('click', async function() {
+    const botaoEnviarArquivo = el;
+    botaoEnviarArquivo.addEventListener('click', async function() {
       const statusDiv = document.getElementById('statusPlanilhaConexao');
-      if (!arquivoPlanilhaLocal) return;
+      if (!arquivoPlanilhaLocal || !planilhaLocalImportada) return;
       if (!currentGoogleToken) {
         if (statusDiv) {
           statusDiv.style.color = '#f59e0b';
@@ -2487,20 +2886,31 @@ document.addEventListener('DOMContentLoaded', function () {
         return;
       }
 
-      el.disabled = true;
-      el.innerText = 'Enviando e convertendo...';
+      botaoEnviarArquivo.disabled = true;
+      botaoEnviarArquivo.innerText = 'Enviando e convertendo...';
       if (statusDiv) {
         statusDiv.style.color = '#3b82f6';
         statusDiv.innerText = 'Criando uma nova planilha no seu Drive. A atual não será substituída.';
       }
 
       try {
+        const assinaturasPorAba = planilhaLocalImportada;
         const criada = await uploadLocalSpreadsheetAsGoogleSheet(arquivoPlanilhaLocal, currentGoogleToken);
         const meta = await fetchSpreadsheetMetadata(criada.id, currentGoogleToken);
+        let totalAssinaturas = 0;
+        for (const grupo of assinaturasPorAba) {
+          const nomeAba = meta.sheets.includes(grupo.sheetName) ? grupo.sheetName : meta.sheets[grupo.sheetIndex];
+          if (!nomeAba) continue;
+          if (statusDiv) statusDiv.innerText = `Recuperando ${grupo.images.length} assinatura(s) da aba ${nomeAba}...`;
+          totalAssinaturas += await restoreLocalSpreadsheetSignatures(criada.id, nomeAba, grupo.images, currentGoogleToken);
+        }
         const abasVisiveis = meta.sheets.filter(nome => !isAbaOculta(nome));
         setActiveSpreadsheetId(criada.id);
+        localStorage.setItem('cei_modo_dados', 'remoto');
         setStoredAbas(abasVisiveis.length ? abasVisiveis : meta.sheets);
         abaAtual = (abasVisiveis[0] || meta.sheets[0] || 'GERAL');
+        planilhaLocalAtiva = false;
+        planilhaLocalImportada = null;
 
         const modal = document.getElementById('modalSelecionarPlanilha');
         if (modal) modal.style.display = 'none';
@@ -2511,7 +2921,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (nome) nome.innerText = 'Nenhum arquivo selecionado';
 
         loadAbas();
-        status('✅ Nova planilha criada no Drive e selecionada: ' + criada.name);
+        status(`✅ Nova planilha criada no Drive: ${criada.name}. Assinaturas vinculadas: ${totalAssinaturas}.`);
       } catch (error) {
         console.error('Erro ao criar planilha Google a partir do arquivo local:', error);
         if (statusDiv) {
@@ -2519,8 +2929,8 @@ document.addEventListener('DOMContentLoaded', function () {
           statusDiv.innerText = error.message || 'Não foi possível enviar o arquivo ao Drive.';
         }
       } finally {
-        el.disabled = !arquivoPlanilhaLocal;
-        el.innerText = 'Enviar cópia nova ao Drive';
+        botaoEnviarArquivo.disabled = !arquivoPlanilhaLocal || !planilhaLocalImportada;
+        botaoEnviarArquivo.innerText = 'Criar cópia no Drive';
       }
     });
   }
@@ -2540,6 +2950,10 @@ document.addEventListener('DOMContentLoaded', function () {
       if (match && match[1]) valor = match[1];
 
       setActiveSpreadsheetId(valor);
+      planilhaLocalAtiva = false;
+      planilhaLocalImportada = null;
+      localStorage.setItem('cei_modo_dados', 'remoto');
+      abaAtual = '';
       const m = document.getElementById('modalSelecionarPlanilha');
       if (m) m.style.display = 'none';
 
@@ -2549,8 +2963,16 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       status('⏳ Carregando dados da planilha ' + valor.substring(0, 8) + '...');
-      loadAbas();
-      sincronizarManual();
+      try {
+        const meta = await fetchSpreadsheetMetadata(valor, currentGoogleToken);
+        const abasVisiveis = meta.sheets.filter(nome => !isAbaOculta(nome));
+        setStoredAbas(abasVisiveis.length ? abasVisiveis : meta.sheets);
+        abaAtual = (abasVisiveis[0] || meta.sheets[0] || 'GERAL');
+        loadAbas();
+        sincronizarManual();
+      } catch (error) {
+        status('❌ Não foi possível abrir a planilha remota: ' + error.message);
+      }
     });
   }
 
