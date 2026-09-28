@@ -276,6 +276,40 @@ async function lerPlanilhaXlsxLocal(file) {
   }).filter(function(sheet) { return sheet.rows.length > 0 || sheet.images.length > 0; });
 }
 
+async function recuperarAssinaturasVisuaisGoogle(spreadsheetId, sheetName, accessToken) {
+  const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(spreadsheetId)}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!response.ok) {
+    throw new Error(`Falha ao exportar imagens da planilha (HTTP ${response.status}).`);
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await response.arrayBuffer());
+  const worksheet = workbook.getWorksheet(sheetName);
+  if (!worksheet) return new Map();
+
+  const signatureRoles = new Map([[5, 'f'], [6, 'g'], [8, 'i'], [9, 'j']]);
+  const signatures = new Map();
+  (worksheet.getImages() || []).forEach(function(image) {
+    const anchor = image.range && image.range.tl;
+    if (!anchor) return;
+    const role = signatureRoles.get(Math.round(anchor.col));
+    if (!role) return;
+
+    const media = workbook.getImage(image.imageId);
+    if (!media) return;
+    const encoded = codificarImagemExcel(media);
+    if (!encoded) return;
+    const extension = String(media.extension || 'png').toLowerCase();
+    const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : `image/${extension}`;
+    const dataUrl = encoded.startsWith('data:image/') ? encoded : `data:${mime};base64,${encoded}`;
+    signatures.set(`${Math.floor(anchor.row) + 1}:${role}`, dataUrl);
+  });
+  return signatures;
+}
+
 function isAbaOculta(nome) {
   if (!nome) return true;
   const u = String(nome).toUpperCase().trim().replace(/[\s_-]+/g, '');
@@ -550,6 +584,20 @@ window.google.script.run = {
         try {
           const rowsFromSheet = await readSheetRows(sheetId, nomeAba || 'GERAL', token);
           if (rowsFromSheet && rowsFromSheet.length > 0) {
+            const hasCellSignatures = rowsFromSheet.some(row => [row.f, row.g, row.i, row.j].some(value => value && String(value).trim()));
+            if (!hasCellSignatures) {
+              try {
+                const visualSignatures = await recuperarAssinaturasVisuaisGoogle(sheetId, nomeAba || 'GERAL', token);
+                rowsFromSheet.forEach(row => {
+                  ['f', 'g', 'i', 'j'].forEach(role => {
+                    const signature = visualSignatures.get(`${row.row}:${role}`);
+                    if (signature) row[role] = signature;
+                  });
+                });
+              } catch (imageError) {
+                console.warn('Não foi possível recuperar imagens da planilha exportada:', imageError);
+              }
+            }
             // Mescla as linhas da planilha com as assinaturas gráficas do banco
             dados = mesclarComAssinaturasDoLivro(rowsFromSheet, nomeAba);
             setStoredAbaDados(nomeAba, dados);
