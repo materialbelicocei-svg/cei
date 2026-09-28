@@ -21,10 +21,16 @@ let cachedAccessToken: string | null = null;
 let signInRequest: Promise<{ user: User; accessToken: string }> | null = null;
 
 // Id padrão da planilha ou configurável
-export const DEFAULT_SHEET_ID = '19PV34qUCreU5xamyD-p-tssw0Ri5AHx8gD-vReF2m-0';
+export const DEFAULT_SHEET_ID = '1n0F-SlK4BuIjI8wzCEETfI-TXmjFBd7VFkisfzgVM1o';
+const LEGACY_SHEET_ID = '19PV34qUCreU5xamyD-p-tssw0Ri5AHx8gD-vReF2m-0';
 
 export function getActiveSpreadsheetId(): string {
-  return localStorage.getItem('CEI_SHEET_ID') || DEFAULT_SHEET_ID;
+  const storedId = localStorage.getItem('CEI_SHEET_ID');
+  if (!storedId || storedId === LEGACY_SHEET_ID) {
+    localStorage.setItem('CEI_SHEET_ID', DEFAULT_SHEET_ID);
+    return DEFAULT_SHEET_ID;
+  }
+  return storedId;
 }
 
 export function setActiveSpreadsheetId(id: string) {
