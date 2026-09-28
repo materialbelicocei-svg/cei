@@ -310,6 +310,40 @@ async function recuperarAssinaturasVisuaisGoogle(spreadsheetId, sheetName, acces
   return signatures;
 }
 
+async function recuperarFormulasImagemGoogle(spreadsheetId, sheetName, accessToken) {
+  const fields = encodeURIComponent('sheets(properties(title),data(startRow,startColumn,rowData(values(userEnteredValue,effectiveValue))))');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?includeGridData=true&fields=${fields}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!response.ok) {
+    throw new Error(`Falha ao ler imagens nas células (HTTP ${response.status}).`);
+  }
+
+  const spreadsheet = await response.json();
+  const sheet = (spreadsheet.sheets || []).find(item => item.properties?.title === sheetName);
+  if (!sheet) return new Map();
+
+  const signatureRoles = new Map([[5, 'f'], [6, 'g'], [8, 'i'], [9, 'j']]);
+  const signatures = new Map();
+  (sheet.data || []).forEach(grid => {
+    const startRow = grid.startRow || 0;
+    const startColumn = grid.startColumn || 0;
+    (grid.rowData || []).forEach((rowData, rowIndex) => {
+      (rowData.values || []).forEach((cell, columnIndex) => {
+        const role = signatureRoles.get(startColumn + columnIndex);
+        if (!role) return;
+        const value = cell.userEnteredValue || cell.effectiveValue || {};
+        const imageValue = value.formulaValue || value.stringValue || '';
+        if (typeof imageValue === 'string' && /^=\s*IMAGE\s*\(/i.test(imageValue)) {
+          signatures.set(`${startRow + rowIndex + 1}:${role}`, imageValue);
+        }
+      });
+    });
+  });
+  return signatures;
+}
+
 function isAbaOculta(nome) {
   if (!nome) return true;
   const u = String(nome).toUpperCase().trim().replace(/[\s_-]+/g, '');
@@ -584,6 +618,18 @@ window.google.script.run = {
         try {
           const rowsFromSheet = await readSheetRows(sheetId, nomeAba || 'GERAL', token);
           if (rowsFromSheet && rowsFromSheet.length > 0) {
+            try {
+              const cellImages = await recuperarFormulasImagemGoogle(sheetId, nomeAba || 'GERAL', token);
+              rowsFromSheet.forEach(row => {
+                ['f', 'g', 'i', 'j'].forEach(role => {
+                  if (row[role] && String(row[role]).trim()) return;
+                  const formula = cellImages.get(`${row.row}:${role}`);
+                  if (formula) row[role] = formula;
+                });
+              });
+            } catch (imageError) {
+              console.warn('Não foi possível recuperar fórmulas de imagem das células:', imageError);
+            }
             try {
               const visualSignatures = await recuperarAssinaturasVisuaisGoogle(sheetId, nomeAba || 'GERAL', token);
               rowsFromSheet.forEach(row => {
