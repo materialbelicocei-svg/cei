@@ -31,6 +31,7 @@ import ExcelJS from 'exceljs/dist/exceljs.min.js';
 // CONFIGURAÇÃO DO GOOGLE SHEETS E SIMULADOR DO GOOGLE.SCRIPT.RUN
 // ============================================================================
 const SHEET_ID_FIXO = getActiveSpreadsheetId();
+const URL_APPS_SCRIPT_REMOTO = 'https://script.google.com/macros/s/AKfycbzABvtAt3gjl8UFp3oBcruYydiwz-ridYEq7AlVPaRxiiAmIPY3sNw3V2o9r9p7KPc7NA/exec';
 const COL_ASS = [6, 7, 9, 10];
 let currentUserGoogle = null;
 let currentGoogleToken = null;
@@ -344,6 +345,39 @@ async function recuperarFormulasImagemGoogle(spreadsheetId, sheetName, accessTok
   return signatures;
 }
 
+async function lerPlanilhaRemotaAppsScript(sheetName, mesFiltro) {
+  const params = new URLSearchParams({
+    action: 'getPlanilhaCompleta',
+    aba: sheetName || '',
+    mes: String(mesFiltro === undefined || mesFiltro === null ? -1 : mesFiltro)
+  });
+  const response = await fetch(`${URL_APPS_SCRIPT_REMOTO}?${params.toString()}`, {
+    credentials: 'omit'
+  });
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.ok || !contentType.includes('application/json')) {
+    throw new Error('O Apps Script remoto ainda não está configurado para retornar JSON.');
+  }
+
+  const payload = await response.json();
+  if (!Array.isArray(payload)) throw new Error('Resposta inválida do Apps Script remoto.');
+  return payload.map(row => ({
+    id: row.id || `CEI-R${row.row}`,
+    row: Number(row.row),
+    data: row.data || '',
+    nome: row.nome || '',
+    arma: row.arma || '',
+    equip: row.equip || '',
+    mun: row.mun || '',
+    f: row.f || '',
+    g: row.g || '',
+    dataDev: row.dataDev || '',
+    i: row.i || '',
+    j: row.j || '',
+    obs: row.obs || ''
+  }));
+}
+
 function isAbaOculta(nome) {
   if (!nome) return true;
   const u = String(nome).toUpperCase().trim().replace(/[\s_-]+/g, '');
@@ -616,7 +650,13 @@ window.google.script.run = {
         dados = getStoredAbaDados(nomeAba);
       } else if (token && sheetId) {
         try {
-          const rowsFromSheet = await readSheetRows(sheetId, nomeAba || 'GERAL', token);
+          let rowsFromSheet;
+          try {
+            rowsFromSheet = await lerPlanilhaRemotaAppsScript(nomeAba || 'GERAL', mesFiltro);
+          } catch (appsScriptError) {
+            console.warn('Apps Script remoto indisponível; usando API Sheets:', appsScriptError);
+            rowsFromSheet = await readSheetRows(sheetId, nomeAba || 'GERAL', token);
+          }
           if (rowsFromSheet && rowsFromSheet.length > 0) {
             try {
               const cellImages = await recuperarFormulasImagemGoogle(sheetId, nomeAba || 'GERAL', token);
@@ -1155,7 +1195,9 @@ function verificarBloqueio() {
 }
 
 async function inicializarApp() {
-  await restaurarPlanilhaLocalPersistida();
+  planilhaLocalAtiva = false;
+  planilhaLocalImportada = null;
+  localStorage.setItem('cei_modo_dados', 'remoto');
   loadAbas();
   var hoje = new Date().toISOString().split('T')[0];
   var el = document.getElementById('dataRet');

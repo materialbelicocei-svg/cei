@@ -25,6 +25,7 @@ body{background:#f5f7fb;overflow-x:hidden}
 .btn-save{background:#0f172a;color:#fff}
 .btn-email{background:#0B5FFF;color:#fff}
 .btn-backup{background:#f59e0b;color:#fff}
+#modalSelecionarPlanilha div:has(> #btnEscolherArquivoLocal){display:none!important}
 .table-wrap{overflow:auto;width:100%;height:calc(100dvh - 120px);background:#fff;position:relative}
 .table-inner{min-width:1850px}
 table{border-collapse:collapse;width:100%;background:#fff;table-layout:fixed}
